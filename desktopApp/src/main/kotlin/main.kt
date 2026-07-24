@@ -424,7 +424,7 @@ fun main(args: Array<String>) = application {
                         onSubscriptionShareClick = { url ->
                             sharePayload = "Subscription QR" to ConfigShareService.subscriptionQrText(url)
                         },
-                        onSubscriptionRefreshClick = { url ->
+                        onSubscriptionRefreshClick = { url, onFinished ->
                             dependencies.homeViewModel.refreshSubscription(url) { updatedCount ->
                                 reloadLocationsAfterImport {
                                     dependencies.homeViewModel.restartVpnIfRunning()
@@ -433,6 +433,7 @@ fun main(args: Array<String>) = application {
                                     } else {
                                         "Subscription not updated"
                                     }
+                                    onFinished()
                                 }
                             }
                         },
