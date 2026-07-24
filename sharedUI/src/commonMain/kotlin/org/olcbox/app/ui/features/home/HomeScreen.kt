@@ -134,7 +134,7 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(scrollState)
-                .padding(horizontal = 32.dp, vertical = 16.dp),
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             RelayStatus(
@@ -302,7 +302,7 @@ fun HomeScreen(
                                         if (subscriptionRefreshError) {
                                             "Use 5m–30d, for example 10m, 6h, or 1d"
                                         } else {
-                                            "Optional. Empty uses the rate supplied by the subscription."
+                                            "Optional. Empty implies default."
                                         }
                                     )
                                 },
