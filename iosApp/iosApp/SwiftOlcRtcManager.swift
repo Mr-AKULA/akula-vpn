@@ -33,7 +33,7 @@ final class SwiftOlcRtcManager: NSObject, @unchecked Sendable, IosOlcRtcBridge {
 
         MobileSetProviders()
         MobileSetTransport(request.transportName)
-        MobileSetDNS("1.1.1.1:53")
+        MobileSetDNS(request.dnsServer)
         MobileSetVP8Options(Int(request.vp8Fps), Int(request.vp8BatchSize))
 
         if MobileIsRunning() {

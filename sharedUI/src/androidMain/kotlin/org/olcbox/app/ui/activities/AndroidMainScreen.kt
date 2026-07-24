@@ -119,8 +119,12 @@ fun AndroidMainScreen(
                 url = url,
                 name = metadata?.name?.takeIf { it.isNotBlank() }
                     ?: items.first().fullName,
+                updateIntervalMs = metadata?.effectiveUpdateIntervalMs(),
+                sourceUpdateIntervalMs = metadata?.updateIntervalMs,
+                manualUpdateIntervalMs = metadata?.manualUpdateIntervalMs,
                 updateIntervalHours = metadata?.updateIntervalHours,
                 lastRefreshAtEpochMs = metadata?.lastRefreshAtEpochMs,
+                nextRefreshAtEpochMs = metadata?.nextRefreshAtEpochMs(),
                 locationCount = items.size
             )
         }
@@ -280,9 +284,12 @@ fun AndroidMainScreen(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            viewModel.onFileSelected(it) {
-                reloadLocationsAfterImport()
-            }
+            viewModel.onFileSelected(
+                fileSource = it,
+                onComplete = {
+                    reloadLocationsAfterImport()
+                }
+            )
         }
     }
 
@@ -297,11 +304,14 @@ fun AndroidMainScreen(
 
         if (rawText.isBlank()) return@rememberLauncherForActivityResult
 
-        viewModel.onImportFullConfig(rawText) {
-            reloadLocationsAfterImport {
-                Toast.makeText(context, "QR imported", Toast.LENGTH_SHORT).show()
+        viewModel.onImportFullConfig(
+            rawText = rawText,
+            onComplete = {
+                reloadLocationsAfterImport {
+                    Toast.makeText(context, "QR imported", Toast.LENGTH_SHORT).show()
+                }
             }
-        }
+        )
     }
 
     val logSaveLauncher = rememberLauncherForActivityResult(
@@ -448,13 +458,41 @@ fun AndroidMainScreen(
             onSubscriptionShareClick = { url ->
                 shareSheetPayload = "Subscription QR" to ConfigShareService.subscriptionQrText(url)
             },
-            onSubscriptionRefreshClick = { url ->
+            onSubscriptionRefreshClick = { url, onFinished ->
                 viewModel.refreshSubscription(url) { updatedCount ->
                     reloadLocationsAfterImport {
                         viewModel.restartVpnIfRunning()
                         Toast.makeText(
                             context,
                             if (updatedCount > 0) "Subscription updated" else "Subscription not updated",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        onFinished()
+                    }
+                }
+            },
+            onSubscriptionRefreshIntervalChanged = { url, intervalMs ->
+                viewModel.setSubscriptionRefreshInterval(url, intervalMs) {
+                    locationViewModel.loadLocations {
+                        Toast.makeText(
+                            context,
+                            if (intervalMs == null) {
+                                "Subscription refresh set to Auto"
+                            } else {
+                                "Subscription refresh rate saved"
+                            },
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            },
+            onSubscriptionDeleteClick = { url ->
+                viewModel.deleteSubscription(url) { removedLocations ->
+                    reloadLocationsAfterImport {
+                        viewModel.restartVpnIfRunning()
+                        Toast.makeText(
+                            context,
+                            "Subscription deleted · $removedLocations locations removed",
                             Toast.LENGTH_SHORT
                         ).show()
                     }

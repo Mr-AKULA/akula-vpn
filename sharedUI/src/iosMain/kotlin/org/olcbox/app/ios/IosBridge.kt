@@ -9,6 +9,7 @@ data class IosOlcRtcStartRequest(
     val socksPort: Int,
     val socksUser: String,
     val socksPass: String,
+    val dnsServer: String,
     val vp8Fps: Int,
     val vp8BatchSize: Int
 )

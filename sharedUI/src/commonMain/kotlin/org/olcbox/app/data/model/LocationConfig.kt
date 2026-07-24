@@ -14,6 +14,8 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 
+expect fun isTransportSupportedOnCurrentPlatform(transport: String): Boolean
+
 @Serializable
 data class LocationConfig(
     val name: String = "",
@@ -25,7 +27,9 @@ data class LocationConfig(
     @SerialName("vp8_fps")
     val vp8Fps: Int = DEFAULT_VP8_FPS,
     @SerialName("vp8_batch")
-    val vp8Batch: Int = DEFAULT_VP8_BATCH
+    val vp8Batch: Int = DEFAULT_VP8_BATCH,
+    @SerialName("dns_server")
+    val dnsServer: String = ""
 ) {
     fun normalized(): LocationConfig {
         val provider = normalizeProvider(bypassProvider)
@@ -36,6 +40,7 @@ data class LocationConfig(
             key = key.trim(),
             bypassProvider = provider,
             transport = normalizedTransport,
+            dnsServer = dnsServer.trim().take(MAX_DNS_SERVER_LENGTH),
             vp8Fps = sanitizeVp8Fps(vp8Fps),
             vp8Batch = sanitizeVp8Batch(vp8Batch)
         )
@@ -47,7 +52,7 @@ data class LocationConfig(
 
     fun providerName(): String = providerDisplayName(bypassProvider)
 
-    fun transportName(): String = transportDisplayName(transport)
+    fun transportName(): String = transportDisplayName(transport, bypassProvider)
 
     companion object {
         const val PROVIDER_JAZZ = "jazz"
@@ -63,6 +68,7 @@ data class LocationConfig(
 
         const val DEFAULT_VP8_FPS = 60
         const val DEFAULT_VP8_BATCH = 64
+        const val MAX_DNS_SERVER_LENGTH = 255
 
         val supportedBypassProviders = listOf(
             PROVIDER_JAZZ,
@@ -78,11 +84,12 @@ data class LocationConfig(
         )
 
         fun supportedTransportsForProvider(provider: String): List<String> {
-            return when (normalizeProvider(provider)) {
+            val providerTransports = when (normalizeProvider(provider)) {
                 PROVIDER_TELEMOST -> listOf(TRANSPORT_VP8CHANNEL, TRANSPORT_SEICHANNEL)
-                PROVIDER_JITSI -> listOf(TRANSPORT_DATACHANNEL)
+                PROVIDER_JITSI -> listOf(TRANSPORT_DATACHANNEL, TRANSPORT_VP8CHANNEL)
                 else -> supportedTransports
             }
+            return providerTransports.filter(::isTransportSupportedOnCurrentPlatform)
         }
 
         fun normalizeProvider(value: String): String {
@@ -100,11 +107,27 @@ data class LocationConfig(
                 TRANSPORT_DATACHANNEL, "data", "dc" -> TRANSPORT_DATACHANNEL
                 TRANSPORT_VP8CHANNEL, "vp8", "video_vp8", "video-vp8" -> TRANSPORT_VP8CHANNEL
                 TRANSPORT_SEICHANNEL, "sei", "sei_channel", "sei-channel", "h264_sei" -> TRANSPORT_SEICHANNEL
-                else -> DEFAULT_TRANSPORT
+                else -> defaultTransportForProvider(provider)
             }
             val supported = supportedTransportsForProvider(provider)
             return normalized.takeIf { it in supported }
-                ?: supported.firstOrNull()
+                ?: fallbackTransportForProvider(provider, supported)
+        }
+
+        fun defaultTransportForProvider(provider: String): String {
+            return if (normalizeProvider(provider) == PROVIDER_JITSI) {
+                TRANSPORT_DATACHANNEL
+            } else {
+                DEFAULT_TRANSPORT
+            }
+        }
+
+        fun fallbackTransportForProvider(
+            provider: String,
+            supportedTransports: List<String>
+        ): String {
+            return defaultTransportForProvider(provider).takeIf { it in supportedTransports }
+                ?: supportedTransports.firstOrNull()
                 ?: DEFAULT_TRANSPORT
         }
 
@@ -118,10 +141,14 @@ data class LocationConfig(
             }
         }
 
-        fun transportDisplayName(transport: String): String {
-            return when (normalizeTransport(transport)) {
+        fun transportDisplayName(transport: String, provider: String? = null): String {
+            return when (normalizeTransport(transport, provider ?: DEFAULT_BYPASS_PROVIDER)) {
                 TRANSPORT_DATACHANNEL -> "DataChannel"
-                TRANSPORT_VP8CHANNEL -> "VP8"
+                TRANSPORT_VP8CHANNEL -> if (normalizeProvider(provider.orEmpty()) == PROVIDER_JITSI) {
+                    "VP8 (Experimental)"
+                } else {
+                    "VP8"
+                }
                 TRANSPORT_SEICHANNEL -> "SEI"
                 else -> "VP8"
             }
@@ -130,6 +157,59 @@ data class LocationConfig(
         fun sanitizeVp8Fps(value: Int): Int = value.coerceIn(1, 120)
 
         fun sanitizeVp8Batch(value: Int): Int = value.coerceIn(1, 64)
+
+        fun isValidDnsServer(value: String): Boolean {
+            val endpoint = value.trim()
+            if (endpoint.isEmpty()) return true
+            if (endpoint.length > MAX_DNS_SERVER_LENGTH || endpoint.any { it.isWhitespace() }) return false
+
+            val host: String
+            val portText: String
+            if (endpoint.startsWith("[")) {
+                val closing = endpoint.indexOf(']')
+                if (closing <= 1 || closing + 1 >= endpoint.length || endpoint[closing + 1] != ':') {
+                    return false
+                }
+                host = endpoint.substring(1, closing)
+                portText = endpoint.substring(closing + 2)
+            } else {
+                val separator = endpoint.lastIndexOf(':')
+                if (separator <= 0 || separator == endpoint.lastIndex) return false
+                host = endpoint.substring(0, separator)
+                portText = endpoint.substring(separator + 1)
+                if (':' in host) return false
+            }
+            val port = portText.toIntOrNull() ?: return false
+            return isValidDnsHost(host, bracketedIpv6 = endpoint.startsWith("[")) &&
+                port in 1..65535
+        }
+
+        private fun isValidDnsHost(host: String, bracketedIpv6: Boolean): Boolean {
+            if (host.isBlank()) return false
+            if (bracketedIpv6) {
+                return ':' in host && host.all {
+                    it.isLetterOrDigit() || it == ':' || it == '.' || it == '%' || it == '_' || it == '-'
+                }
+            }
+
+            if (host.all { it.isDigit() || it == '.' }) {
+                val octets = host.split('.')
+                return octets.size == 4 && octets.all { octet ->
+                    val value = octet.toIntOrNull()
+                    octet.isNotEmpty() && value != null && value in 0..255
+                }
+            }
+
+            val normalizedHost = host.removeSuffix(".")
+            if (normalizedHost.isEmpty() || normalizedHost.length > 253) return false
+            return normalizedHost.split('.').all { label ->
+                label.isNotEmpty() &&
+                    label.length <= 63 &&
+                    label.first() != '-' &&
+                    label.last() != '-' &&
+                    label.all { it.isLetterOrDigit() || it == '-' }
+            }
+        }
     }
 }
 
@@ -248,12 +328,22 @@ data class SubscriptionMetadata(
     val icon: String? = null,
     val used: String? = null,
     val available: String? = null,
+    @SerialName("update_interval_ms")
+    val updateIntervalMs: Long? = null,
+    @SerialName("manual_update_interval_ms")
+    val manualUpdateIntervalMs: Long? = null,
     @SerialName("update_interval_hours")
     val updateIntervalHours: Int? = null,
+    @SerialName("last_refresh_attempt_at_epoch_ms")
+    val lastRefreshAttemptAtEpochMs: Long? = null,
     @SerialName("last_refresh_at_epoch_ms")
-    val lastRefreshAtEpochMs: Long? = null
+    val lastRefreshAtEpochMs: Long? = null,
+    @SerialName("consecutive_refresh_failures")
+    val consecutiveRefreshFailures: Int = 0
 ) {
     fun normalized(): SubscriptionMetadata {
+        val migratedInterval = updateIntervalMs
+            ?: updateIntervalHours?.toLong()?.times(HOUR_MS)
         return copy(
             name = name.cleanMetadataValue(),
             update = update.cleanMetadataValue(),
@@ -262,9 +352,38 @@ data class SubscriptionMetadata(
             icon = icon.cleanMetadataValue(),
             used = used.cleanMetadataValue(),
             available = available.cleanMetadataValue(),
-            updateIntervalHours = updateIntervalHours?.coerceIn(MIN_UPDATE_INTERVAL_HOURS, MAX_UPDATE_INTERVAL_HOURS),
-            lastRefreshAtEpochMs = lastRefreshAtEpochMs?.takeIf { it > 0 }
+            updateIntervalMs = migratedInterval?.coerceIn(MIN_UPDATE_INTERVAL_MS, MAX_UPDATE_INTERVAL_MS),
+            manualUpdateIntervalMs = manualUpdateIntervalMs?.coerceIn(
+                MIN_UPDATE_INTERVAL_MS,
+                MAX_UPDATE_INTERVAL_MS
+            ),
+            updateIntervalHours = updateIntervalHours?.coerceIn(
+                MIN_UPDATE_INTERVAL_HOURS,
+                MAX_UPDATE_INTERVAL_HOURS
+            ),
+            lastRefreshAttemptAtEpochMs = lastRefreshAttemptAtEpochMs?.takeIf { it > 0 },
+            lastRefreshAtEpochMs = lastRefreshAtEpochMs?.takeIf { it > 0 },
+            consecutiveRefreshFailures = consecutiveRefreshFailures.coerceIn(0, MAX_FAILURE_COUNT)
         )
+    }
+
+    fun effectiveUpdateIntervalMs(): Long {
+        val normalized = normalized()
+        return normalized.manualUpdateIntervalMs
+            ?: normalized.updateIntervalMs
+            ?: DEFAULT_UPDATE_INTERVAL_MS
+    }
+
+    fun nextRefreshAtEpochMs(): Long {
+        val normalized = normalized()
+        if (normalized.consecutiveRefreshFailures > 0) {
+            val lastAttempt = normalized.lastRefreshAttemptAtEpochMs ?: 0L
+            if (lastAttempt <= 0L) return 0L
+            return lastAttempt + retryDelayMs(normalized.consecutiveRefreshFailures)
+        }
+        val lastSuccess = normalized.lastRefreshAtEpochMs ?: 0L
+        if (lastSuccess <= 0L) return 0L
+        return lastSuccess + normalized.effectiveUpdateIntervalMs()
     }
 
     fun isEmpty(): Boolean {
@@ -275,14 +394,76 @@ data class SubscriptionMetadata(
                 icon.isNullOrBlank() &&
                 used.isNullOrBlank() &&
                 available.isNullOrBlank() &&
+                updateIntervalMs == null &&
+                manualUpdateIntervalMs == null &&
                 updateIntervalHours == null &&
-                lastRefreshAtEpochMs == null
+                lastRefreshAttemptAtEpochMs == null &&
+                lastRefreshAtEpochMs == null &&
+                consecutiveRefreshFailures == 0
     }
 
     companion object {
         const val DEFAULT_UPDATE_INTERVAL_HOURS = 24
         const val MIN_UPDATE_INTERVAL_HOURS = 1
         const val MAX_UPDATE_INTERVAL_HOURS = 720
+        const val MIN_UPDATE_INTERVAL_MS = 5L * 60L * 1_000L
+        const val DEFAULT_UPDATE_INTERVAL_MS = DEFAULT_UPDATE_INTERVAL_HOURS * 60L * 60L * 1_000L
+        const val MAX_UPDATE_INTERVAL_MS = MAX_UPDATE_INTERVAL_HOURS * 60L * 60L * 1_000L
+        const val HOUR_MS = 60L * 60L * 1_000L
+        private const val RETRY_BASE_MS = 5L * 60L * 1_000L
+        private const val RETRY_MAX_MS = 6L * HOUR_MS
+        private const val MAX_FAILURE_COUNT = 16
+
+        fun retryDelayMs(failureCount: Int): Long {
+            val shift = (failureCount - 1).coerceIn(0, 6)
+            return (RETRY_BASE_MS * (1L shl shift)).coerceAtMost(RETRY_MAX_MS)
+        }
+    }
+}
+
+fun parseSubscriptionRefreshIntervalMs(
+    value: String,
+    clampToSupportedRange: Boolean = false
+): Long? {
+    val match = Regex("^(\\d+)\\s*([smhd])$")
+        .matchEntire(value.trim().lowercase())
+        ?: return null
+    val amount = match.groupValues[1].toLongOrNull() ?: return null
+    val unitMs = when (match.groupValues[2]) {
+        "s" -> 1_000L
+        "m" -> 60L * 1_000L
+        "h" -> SubscriptionMetadata.HOUR_MS
+        "d" -> 24L * SubscriptionMetadata.HOUR_MS
+        else -> return null
+    }
+    val intervalMs = if (amount > Long.MAX_VALUE / unitMs) {
+        Long.MAX_VALUE
+    } else {
+        amount * unitMs
+    }
+    return if (clampToSupportedRange) {
+        intervalMs.coerceIn(
+            SubscriptionMetadata.MIN_UPDATE_INTERVAL_MS,
+            SubscriptionMetadata.MAX_UPDATE_INTERVAL_MS
+        )
+    } else {
+        intervalMs.takeIf {
+            it in SubscriptionMetadata.MIN_UPDATE_INTERVAL_MS..
+                SubscriptionMetadata.MAX_UPDATE_INTERVAL_MS
+        }
+    }
+}
+
+fun formatSubscriptionRefreshInterval(intervalMs: Long): String {
+    val minuteMs = 60L * 1_000L
+    val dayMs = 24L * SubscriptionMetadata.HOUR_MS
+    return when {
+        intervalMs % dayMs == 0L -> "${intervalMs / dayMs}d"
+        intervalMs % SubscriptionMetadata.HOUR_MS == 0L -> {
+            "${intervalMs / SubscriptionMetadata.HOUR_MS}h"
+        }
+        intervalMs % minuteMs == 0L -> "${intervalMs / minuteMs}m"
+        else -> "${intervalMs / 1_000L}s"
     }
 }
 
@@ -371,7 +552,11 @@ data class LocationEntry(
     @SerialName("vp8_batch")
     val legacyVp8Batch: Int? = null,
     @SerialName("vp8Batch")
-    val legacyVp8BatchCamel: Int? = null
+    val legacyVp8BatchCamel: Int? = null,
+    @SerialName("dns_server")
+    val dnsServer: String? = null,
+    @SerialName("dnsServer")
+    val legacyDnsServerCamel: String? = null
 ) {
     val location: LocationConfig
         get() {
@@ -382,7 +567,9 @@ data class LocationEntry(
                 legacyBypassProviderCamel,
                 legacyProvider
             )
-            val transportConfig = transport ?: LocationTransportConfig()
+            val transportConfig = transport ?: LocationTransportConfig(
+                type = LocationConfig.defaultTransportForProvider(provider)
+            )
             val vp8Options = transportConfig.vp8
             return LocationConfig(
                 name = name,
@@ -397,7 +584,8 @@ data class LocationEntry(
                 vp8Batch = vp8Options?.batch
                     ?: legacyVp8Batch
                     ?: legacyVp8BatchCamel
-                    ?: LocationConfig.DEFAULT_VP8_BATCH
+                    ?: LocationConfig.DEFAULT_VP8_BATCH,
+                dnsServer = firstNotBlank(dnsServer, legacyDnsServerCamel)
             ).normalized()
         }
 
@@ -416,6 +604,7 @@ data class LocationEntry(
             ),
             authProvider = config.bypassProvider,
             transport = LocationTransportConfig.from(config),
+            dnsServer = config.dnsServer.takeIf { it.isNotBlank() },
             metadata = metadata
                 ?.normalized()
                 ?.takeUnless { it.isEmpty() }
@@ -440,6 +629,7 @@ data class LocationEntry(
                 ),
                 authProvider = config.bypassProvider,
                 transport = LocationTransportConfig.from(config),
+                dnsServer = config.dnsServer.takeIf { it.isNotBlank() },
                 metadata = metadata
             ).normalized()
         }

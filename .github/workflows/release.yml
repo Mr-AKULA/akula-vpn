@@ -25,6 +25,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       version_code: ${{ steps.version.outputs.version_code }}
       olcrtc_ref: ${{ steps.version.outputs.olcrtc_ref }}
+      olcrtc_sha: ${{ steps.core.outputs.sha }}
       nightly_tag: ${{ steps.version.outputs.nightly_tag }}
       nightly_title: ${{ steps.version.outputs.nightly_title }}
 
@@ -52,6 +53,19 @@ jobs:
             echo "nightly_title=Nightly Olcbox builds" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Checkout olcrtc once to resolve the release commit
+        uses: actions/checkout@v7
+        with:
+          repository: openlibrecommunity/olcrtc
+          ref: ${{ steps.version.outputs.olcrtc_ref }}
+          path: olcrtc
+          fetch-depth: 1
+          submodules: false
+
+      - name: Resolve exact olcrtc commit
+        id: core
+        run: echo "sha=$(git -C olcrtc rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build-windows:
     needs: release_version
     runs-on: windows-latest
@@ -74,7 +88,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: openlibrecommunity/olcrtc
-          ref: ${{ needs.release_version.outputs.olcrtc_ref }}
+          ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
 
@@ -210,7 +224,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: openlibrecommunity/olcrtc
-          ref: ${{ needs.release_version.outputs.olcrtc_ref }}
+          ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
 
@@ -263,7 +277,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: openlibrecommunity/olcrtc
-          ref: ${{ needs.release_version.outputs.olcrtc_ref }}
+          ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
 
@@ -335,7 +349,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: openlibrecommunity/olcrtc
-          ref: ${{ needs.release_version.outputs.olcrtc_ref }}
+          ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
 
@@ -459,7 +473,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: openlibrecommunity/olcrtc
-          ref: ${{ needs.release_version.outputs.olcrtc_ref }}
+          ref: ${{ needs.release_version.outputs.olcrtc_sha }}
           path: olcrtc
           submodules: recursive
 
@@ -552,6 +566,7 @@ jobs:
       OLCBOX_VERSION: ${{ needs.release_version.outputs.version }}
       OLCBOX_VERSION_CODE: ${{ needs.release_version.outputs.version_code }}
       OLCBOX_OLCRTC_REF: ${{ needs.release_version.outputs.olcrtc_ref }}
+      OLCBOX_OLCRTC_SHA: ${{ needs.release_version.outputs.olcrtc_sha }}
       OLCBOX_NIGHTLY_TAG: ${{ needs.release_version.outputs.nightly_tag }}
       OLCBOX_NIGHTLY_TITLE: ${{ needs.release_version.outputs.nightly_title }}
 
@@ -586,6 +601,7 @@ jobs:
             echo "- Source commit: \`${GITHUB_SHA}\`"
             echo "- Source branch: \`${GITHUB_REF_NAME}\`"
             echo "- olcrtc branch: \`${OLCBOX_OLCRTC_REF}\`"
+            echo "- olcrtc commit: \`${OLCBOX_OLCRTC_SHA}\`"
             echo "- App version: \`${OLCBOX_VERSION}\`"
             echo "- Android versionCode: \`${OLCBOX_VERSION_CODE}\`"
             echo "- Android APKs: universal and \`armeabi-v7a\`"

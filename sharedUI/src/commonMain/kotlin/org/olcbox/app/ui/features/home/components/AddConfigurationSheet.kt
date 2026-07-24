@@ -81,8 +81,8 @@ fun AddConfigurationSheet(
                 }
 
                 AddSheetAction(
-                    title = "Paste link or URI",
-                    value = "HTTP, HTTPS, or olcrtc URI",
+                    title = "Enter link or URI",
+                    value = "Type, edit, or import from clipboard",
                     icon = Icons.AutoMirrored.Outlined.Input,
                     onClick = onPasteLinkClick
                 )

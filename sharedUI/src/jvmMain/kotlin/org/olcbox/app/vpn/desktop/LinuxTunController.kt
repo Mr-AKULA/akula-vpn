@@ -190,6 +190,8 @@ internal class LinuxTunController(
         const val TUN_NAME = "olcbox0"
         const val TUN_MTU = 1500
         const val TUN_IPV4_ADDRESS = "10.0.88.88"
+        const val TUN_TCP_BUFFER_SIZE = 65_536
+        const val TUN_TASK_STACK_SIZE = 86_016
         const val MAPDNS_ADDRESS = "1.1.1.1"
         const val MAPDNS_NETWORK = "100.64.0.0"
         const val MAPDNS_NETMASK = "255.192.0.0"
@@ -234,8 +236,8 @@ internal class LinuxTunController(
                 appendLine("  cache-size: 10000")
                 appendLine()
                 appendLine("misc:")
-                appendLine("  task-stack-size: 24576")
-                appendLine("  tcp-buffer-size: 4096")
+                appendLine("  task-stack-size: $TUN_TASK_STACK_SIZE")
+                appendLine("  tcp-buffer-size: $TUN_TCP_BUFFER_SIZE")
                 appendLine("  max-session-count: 1200")
                 appendLine("  connect-timeout: 10000")
                 appendLine("  tcp-read-write-timeout: 300000")

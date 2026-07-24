@@ -259,6 +259,24 @@ fun LocationSettingsScreen(
             }
 
             item {
+                SettingsTextField(
+                    value = config.dnsServer,
+                    onValueChange = viewModel::onDnsServerChanged,
+                    label = "DNS server (optional)",
+                    placeholder = "Auto, or 1.1.1.1:53",
+                    enabled = !isSaving,
+                    isError = viewModel.dnsError != null,
+                    supportingText = viewModel.dnsError,
+                    leadingIcon = Icons.Rounded.Public,
+                    onClear = { viewModel.onDnsServerChanged("") },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    )
+                )
+            }
+
+            item {
                 PingButton(
                     homeViewModel = homeViewModel,
                     configGetter = { viewModel.editingConfig }
@@ -381,7 +399,9 @@ private fun TransportPicker(
         options = options,
         enabled = enabled,
         onValueSelected = onTransportSelected,
-        valueLabel = LocationConfig::transportDisplayName
+        valueLabel = { transport ->
+            LocationConfig.transportDisplayName(transport, provider)
+        }
     )
 }
 

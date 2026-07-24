@@ -6,6 +6,8 @@ import io.ktor.client.request.headers
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
+import io.ktor.http.Url
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +30,9 @@ import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationEntry
 import org.olcbox.app.data.model.LocationMetadata
 import org.olcbox.app.data.model.SubscriptionMetadata
+import org.olcbox.app.data.model.parseSubscriptionRefreshIntervalMs
+import org.olcbox.app.data.repository.LocationImportFailureKind
+import org.olcbox.app.data.repository.LocationImportResult
 import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
 
@@ -61,13 +66,13 @@ class LocationsRepositoryImpl(
     private data class ImportSource(
         val content: String,
         val subscriptionUrl: String? = null,
-        val updateIntervalHours: Int? = null,
+        val updateIntervalMs: Long? = null,
         val requestMode: SubscriptionRequestMode = SubscriptionRequestMode.Identity
     )
 
     private data class DownloadedSubscription(
         val content: String,
-        val updateIntervalHours: Int?
+        val updateIntervalMs: Long?
     )
 
     private data class ParsedImport(
@@ -79,6 +84,33 @@ class LocationsRepositoryImpl(
         val source: ImportSource,
         val parsed: ParsedImport
     )
+
+    private sealed interface ResolvedImportResult {
+        data class Success(val value: ResolvedImport) : ResolvedImportResult
+
+        data class Failure(
+            val kind: LocationImportFailureKind,
+            val message: String
+        ) : ResolvedImportResult
+    }
+
+    private sealed interface ImportSourceResult {
+        data class Success(val value: ImportSource) : ImportSourceResult
+
+        data class Failure(
+            val kind: LocationImportFailureKind,
+            val message: String
+        ) : ImportSourceResult
+    }
+
+    private sealed interface DownloadSubscriptionResult {
+        data class Success(val value: DownloadedSubscription) : DownloadSubscriptionResult
+
+        data class Failure(
+            val kind: LocationImportFailureKind,
+            val message: String
+        ) : DownloadSubscriptionResult
+    }
 
     private data class ParsedOlcRtcUri(
         val location: LocationConfig,
@@ -139,21 +171,68 @@ class LocationsRepositoryImpl(
         return json.encodeToString(LocationBundleV4.serializer(), getBundle())
     }
 
-    override suspend fun importText(text: String, subscriptionProxy: SubscriptionFetchProxy?): Boolean {
-        val resolved = resolveParsedImport(
-            text = text,
-            subscriptionProxy = subscriptionProxy
-        ) ?: return false
+    override suspend fun importTextDetailed(
+        text: String,
+        subscriptionProxy: SubscriptionFetchProxy?
+    ): LocationImportResult {
+        val resolved = when (
+            val result = resolveParsedImportDetailed(
+                text = text,
+                subscriptionProxy = subscriptionProxy
+            )
+        ) {
+            is ResolvedImportResult.Success -> result.value
+            is ResolvedImportResult.Failure -> {
+                return LocationImportResult.Failure(result.kind, result.message)
+            }
+        }
+
+        val importedBundle = if (resolved.source.subscriptionUrl != null) {
+            val importedAt = nowEpochMs()
+            resolved.parsed.bundle.copy(
+                locations = resolved.parsed.bundle.locations.map { entry ->
+                    val subscription = entry.metadata?.subscription
+                    entry.copy(
+                        metadata = entry.metadata.withSubscriptionRefreshState(
+                            updateIntervalMs = subscription?.effectiveUpdateIntervalMs()
+                                ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_MS,
+                            manualUpdateIntervalMs = subscription?.manualUpdateIntervalMs,
+                            lastRefreshAttemptAtEpochMs = importedAt,
+                            lastRefreshAtEpochMs = importedAt,
+                            consecutiveRefreshFailures = 0
+                        )
+                    ).normalized()
+                }
+            ).normalized()
+        } else {
+            resolved.parsed.bundle
+        }
 
         mutationMutex.withLock {
-            val merged = mergeImportedBundle(
-                current = getBundleUnlocked(),
-                imported = resolved.parsed.bundle.normalized(),
-                replaceMatchingStorageIds = resolved.parsed.mode == ImportMode.Restore
-            )
+            val current = getBundleUnlocked()
+            val subscriptionUrl = resolved.source.subscriptionUrl
+            val merged = if (
+                subscriptionUrl != null &&
+                current.locations.any { it.subscriptionUrl?.trim() == subscriptionUrl.trim() }
+            ) {
+                mergeImportedSubscription(
+                    current = current,
+                    imported = importedBundle.normalized(),
+                    subscriptionUrl = subscriptionUrl
+                )
+            } else {
+                mergeImportedBundle(
+                    current = current,
+                    imported = importedBundle.normalized(),
+                    replaceMatchingStorageIds = resolved.parsed.mode == ImportMode.Restore
+                )
+            }
             saveBundleUnlocked(merged)
         }
-        return true
+        return LocationImportResult.Success(
+            importedLocations = importedBundle.locations.size,
+            subscriptionUrl = resolved.source.subscriptionUrl
+        )
     }
 
     override suspend fun refreshSubscriptions(subscriptionProxy: SubscriptionFetchProxy?): Int {
@@ -203,33 +282,47 @@ class LocationsRepositoryImpl(
         val activeBefore = bundle.activeLocationId
         var activeAfter = activeBefore
         var successfulRefreshes = 0
+        var attemptedRefreshes = 0
 
-        fun preservePreviousEntries(entries: List<LocationEntry>) {
+        fun preservePreviousEntries(entries: List<LocationEntry>, failedAtEpochMs: Long? = null) {
             entries.forEach { entry ->
                 if (usedStorageIds.add(entry.storageId)) {
-                    refreshedLocations += entry
+                    refreshedLocations += if (failedAtEpochMs == null) {
+                        entry
+                    } else {
+                        entry.copy(
+                            metadata = entry.metadata.withSubscriptionRefreshFailure(failedAtEpochMs)
+                        ).normalized()
+                    }
                 }
             }
         }
 
         groupedByUrl.forEach { (url, previousEntries) ->
-            val previousInterval = previousEntries.subscriptionUpdateIntervalHours()
+            attemptedRefreshes += 1
+            val refreshTimestamp = nowEpochMs()
+            val previousInterval = previousEntries.subscriptionUpdateIntervalMs()
             val resolved = resolveParsedImport(
                 text = url,
                 fallbackSubscriptionInterval = previousInterval,
                 subscriptionProxy = subscriptionProxy
             ) ?: run {
-                preservePreviousEntries(previousEntries)
+                preservePreviousEntries(previousEntries, refreshTimestamp)
                 return@forEach
             }
             val source = resolved.source
-            val updateInterval = source.updateIntervalHours
-                ?: previousInterval
-                ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS
-            val refreshTimestamp = nowEpochMs()
             val refreshed = resolved.parsed.bundle.locations
+            val updateInterval = source.updateIntervalMs
+                ?: refreshed.firstNotNullOfOrNull {
+                    it.metadata?.subscription?.updateIntervalMs
+                }
+                ?: previousInterval
+                ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_MS
+            val manualInterval = previousEntries.firstNotNullOfOrNull {
+                it.metadata?.subscription?.manualUpdateIntervalMs
+            }
             if (refreshed.isEmpty()) {
-                preservePreviousEntries(previousEntries)
+                preservePreviousEntries(previousEntries, refreshTimestamp)
                 return@forEach
             }
 
@@ -251,9 +344,15 @@ class LocationsRepositoryImpl(
                 entry.copy(
                     storageId = storageId,
                     subscriptionUrl = url,
+                    dnsServer = entry.location.dnsServer
+                        .ifBlank { reusedEntry?.location?.dnsServer.orEmpty() }
+                        .takeIf { it.isNotBlank() },
                     metadata = entry.metadata.withSubscriptionRefreshState(
-                        updateIntervalHours = updateInterval,
-                        lastRefreshAtEpochMs = refreshTimestamp
+                        updateIntervalMs = updateInterval,
+                        manualUpdateIntervalMs = manualInterval,
+                        lastRefreshAttemptAtEpochMs = refreshTimestamp,
+                        lastRefreshAtEpochMs = refreshTimestamp,
+                        consecutiveRefreshFailures = 0
                     )
                 ).normalized()
             }
@@ -268,7 +367,7 @@ class LocationsRepositoryImpl(
             successfulRefreshes += 1
         }
 
-        if (successfulRefreshes == 0) return 0
+        if (attemptedRefreshes == 0) return 0
 
         saveBundleUnlocked(
             bundle.copy(
@@ -286,12 +385,8 @@ class LocationsRepositoryImpl(
             val dueUrls = bundle.locations
                 .mapNotNull { entry ->
                     val url = entry.subscriptionUrl?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-                    val metadata = entry.metadata?.subscription
-                    val interval = metadata?.updateIntervalHours
-                        ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS
-                    val lastRefreshAt = metadata?.lastRefreshAtEpochMs ?: 0L
-                    val intervalMs = interval.toLong() * 60L * 60L * 1_000L
-                    url.takeIf { lastRefreshAt <= 0L || now - lastRefreshAt >= intervalMs }
+                    val nextRefreshAt = entry.metadata?.subscription?.nextRefreshAtEpochMs() ?: 0L
+                    url.takeIf { nextRefreshAt <= now }
                 }
                 .toSet()
 
@@ -306,14 +401,26 @@ class LocationsRepositoryImpl(
         }
     }
 
-    override suspend fun setSubscriptionUpdateInterval(subscriptionUrl: String, hours: Int) {
+    override suspend fun nextSubscriptionRefreshAtEpochMs(): Long? {
+        return mutationMutex.withLock {
+            getBundleUnlocked().locations
+                .mapNotNull { entry ->
+                    entry.subscriptionUrl?.takeIf { it.isNotBlank() }
+                        ?: return@mapNotNull null
+                    entry.metadata?.subscription?.nextRefreshAtEpochMs() ?: 0L
+                }
+                .minOrNull()
+        }
+    }
+
+    override suspend fun setSubscriptionUpdateInterval(subscriptionUrl: String, intervalMs: Long?) {
         val normalizedUrl = subscriptionUrl.trim()
         if (normalizedUrl.isBlank()) return
 
         mutationMutex.withLock {
-            val interval = hours.coerceIn(
-                SubscriptionMetadata.MIN_UPDATE_INTERVAL_HOURS,
-                SubscriptionMetadata.MAX_UPDATE_INTERVAL_HOURS
+            val interval = intervalMs?.coerceIn(
+                SubscriptionMetadata.MIN_UPDATE_INTERVAL_MS,
+                SubscriptionMetadata.MAX_UPDATE_INTERVAL_MS
             )
             val bundle = getBundleUnlocked()
             val updated = bundle.locations.map { entry ->
@@ -321,12 +428,40 @@ class LocationsRepositoryImpl(
                     entry
                 } else {
                     entry.copy(
-                        metadata = entry.metadata.withSubscriptionInterval(interval)
+                        metadata = entry.metadata.withManualSubscriptionInterval(interval)
                     ).normalized()
                 }
             }
 
             saveBundleUnlocked(bundle.copy(locations = updated))
+        }
+    }
+
+    override suspend fun deleteSubscription(subscriptionUrl: String): Int {
+        val normalizedUrl = subscriptionUrl.trim()
+        if (normalizedUrl.isBlank()) return 0
+
+        return mutationMutex.withLock {
+            val bundle = getBundleUnlocked()
+            val removed = bundle.locations.filter {
+                it.subscriptionUrl?.trim() == normalizedUrl
+            }
+            if (removed.isEmpty()) return@withLock 0
+
+            val remaining = bundle.locations.filterNot {
+                it.subscriptionUrl?.trim() == normalizedUrl
+            }
+            val activeLocationId = bundle.activeLocationId
+                ?.takeIf { activeId -> remaining.any { it.storageId == activeId } }
+                ?: remaining.firstOrNull()?.storageId
+
+            saveBundleUnlocked(
+                bundle.copy(
+                    activeLocationId = activeLocationId,
+                    locations = remaining
+                )
+            )
+            removed.size
         }
     }
 
@@ -404,93 +539,178 @@ class LocationsRepositoryImpl(
 
     private suspend fun resolveParsedImport(
         text: String,
-        fallbackSubscriptionInterval: Int? = null,
+        fallbackSubscriptionInterval: Long? = null,
         subscriptionProxy: SubscriptionFetchProxy? = null
     ): ResolvedImport? {
-        val input = text.normalizedImportText()
-        if (input.isBlank()) return null
+        return when (
+            val result = resolveParsedImportDetailed(
+                text = text,
+                fallbackSubscriptionInterval = fallbackSubscriptionInterval,
+                subscriptionProxy = subscriptionProxy
+            )
+        ) {
+            is ResolvedImportResult.Success -> result.value
+            is ResolvedImportResult.Failure -> null
+        }
+    }
 
-        var source = resolveImportSource(
+    private suspend fun resolveParsedImportDetailed(
+        text: String,
+        fallbackSubscriptionInterval: Long? = null,
+        subscriptionProxy: SubscriptionFetchProxy? = null
+    ): ResolvedImportResult {
+        val input = text.normalizedImportText()
+        if (input.isBlank()) {
+            return ResolvedImportResult.Failure(
+                LocationImportFailureKind.EmptyInput,
+                "Enter a subscription URL, olcrtc URI, or configuration text"
+            )
+        }
+        if (input.looksLikeUnsupportedUrl()) {
+            return ResolvedImportResult.Failure(
+                LocationImportFailureKind.InvalidUrl,
+                "Only HTTP, HTTPS, and olcrtc URIs are supported"
+            )
+        }
+        if (input.isHttpUrl() && !input.isValidHttpUrl()) {
+            return ResolvedImportResult.Failure(
+                LocationImportFailureKind.InvalidUrl,
+                "Enter a valid HTTP or HTTPS subscription URL"
+            )
+        }
+        var sourceResult = resolveImportSourceDetailed(
             text = input,
             requestMode = SubscriptionRequestMode.Identity,
             subscriptionProxy = subscriptionProxy
-        ) ?: run {
-            if (input.isHttpUrl()) {
-                resolveImportSource(
-                    text = input,
-                    requestMode = SubscriptionRequestMode.Compatibility,
-                    subscriptionProxy = subscriptionProxy
-                )
-            } else {
-                null
-            }
-        } ?: return null
+        )
+        var source = (sourceResult as? ImportSourceResult.Success)?.value
+        var lastFailure = sourceResult as? ImportSourceResult.Failure
 
-        var parsed = parseImportSource(source, fallbackSubscriptionInterval)
-        if (parsed == null && input.isHttpUrl() && source.requestMode != SubscriptionRequestMode.Compatibility) {
-            val fallbackSource = resolveImportSource(
+        if (source == null && input.isHttpUrl()) {
+            sourceResult = resolveImportSourceDetailed(
                 text = input,
                 requestMode = SubscriptionRequestMode.Compatibility,
                 subscriptionProxy = subscriptionProxy
             )
-            if (fallbackSource != null) {
-                source = fallbackSource
-                parsed = parseImportSource(fallbackSource, fallbackSubscriptionInterval)
+            source = (sourceResult as? ImportSourceResult.Success)?.value
+            lastFailure = sourceResult as? ImportSourceResult.Failure ?: lastFailure
+        }
+
+        if (source == null) {
+            return lastFailure?.toResolvedFailure()
+                ?: ResolvedImportResult.Failure(
+                    LocationImportFailureKind.Network,
+                    "Could not download the subscription"
+                )
+        }
+
+        var parsed = parseImportSource(source, fallbackSubscriptionInterval)
+        if (parsed == null && input.isHttpUrl() && source.requestMode != SubscriptionRequestMode.Compatibility) {
+            when (
+                val fallbackSource = resolveImportSourceDetailed(
+                    text = input,
+                    requestMode = SubscriptionRequestMode.Compatibility,
+                    subscriptionProxy = subscriptionProxy
+                )
+            ) {
+                is ImportSourceResult.Success -> {
+                    source = fallbackSource.value
+                    parsed = parseImportSource(source, fallbackSubscriptionInterval)
+                }
+                is ImportSourceResult.Failure -> lastFailure = fallbackSource
             }
         }
 
-        return parsed?.let { ResolvedImport(source, it) }
+        if (parsed == null) {
+            return lastFailure?.toResolvedFailure()
+                ?: ResolvedImportResult.Failure(
+                    LocationImportFailureKind.UnsupportedFormat,
+                    if (input.isHttpUrl()) {
+                        "The server responded, but the body is not a supported Olcbox configuration"
+                    } else {
+                        "The text is not a supported Olcbox configuration"
+                    }
+                )
+        }
+
+        return ResolvedImportResult.Success(ResolvedImport(source, parsed))
     }
 
     private fun parseImportSource(
         source: ImportSource,
-        fallbackSubscriptionInterval: Int? = null
+        fallbackSubscriptionInterval: Long? = null
     ): ParsedImport? {
-        val initialSubscriptionInterval = source.updateIntervalHours
-            ?: fallbackSubscriptionInterval
-            ?: source.subscriptionUrl?.let { SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS }
-
-        return parseImport(
+        val parsed = parseImport(
             source.content.normalizedImportText(),
             source.subscriptionUrl,
-            initialSubscriptionInterval
+            source.updateIntervalMs
+        ) ?: return null
+        if (source.subscriptionUrl == null) return parsed
+
+        val bodyInterval = parsed.bundle.locations.firstNotNullOfOrNull {
+            it.metadata?.subscription?.updateIntervalMs
+        }
+        val resolvedInterval = source.updateIntervalMs
+            ?: bodyInterval
+            ?: fallbackSubscriptionInterval
+            ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_MS
+        return parsed.copy(
+            bundle = parsed.bundle.copy(
+                locations = parsed.bundle.locations.map { entry ->
+                    entry.copy(
+                        metadata = entry.metadata.withSubscriptionInterval(resolvedInterval)
+                    ).normalized()
+                }
+            ).normalized()
         )
     }
 
-    private suspend fun resolveImportSource(
+    private suspend fun resolveImportSourceDetailed(
         text: String,
         requestMode: SubscriptionRequestMode,
         subscriptionProxy: SubscriptionFetchProxy?
-    ): ImportSource? {
-        if (text.isBlank()) return null
-
-        if (!text.isHttpUrl()) {
-            return ImportSource(content = text.normalizedImportText())
+    ): ImportSourceResult {
+        if (text.isBlank()) {
+            return ImportSourceResult.Failure(
+                LocationImportFailureKind.EmptyInput,
+                "No configuration text found"
+            )
         }
 
-        val downloaded = downloadTextFromUrl(
-            url = text,
-            requestMode = requestMode,
-            subscriptionProxy = subscriptionProxy
-        ) ?: return null
-        return downloaded.content
-            .normalizedImportText()
-            .takeIf { it.isNotBlank() }
-            ?.let {
-                ImportSource(
-                    content = it,
-                    subscriptionUrl = text.trim(),
-                    updateIntervalHours = downloaded.updateIntervalHours,
-                    requestMode = requestMode
+        if (!text.isHttpUrl()) {
+            return ImportSourceResult.Success(
+                ImportSource(content = text.normalizedImportText())
+            )
+        }
+
+        return when (
+            val downloaded = downloadTextFromUrl(
+                url = text,
+                requestMode = requestMode,
+                subscriptionProxy = subscriptionProxy
+            )
+        ) {
+            is DownloadSubscriptionResult.Success -> {
+                ImportSourceResult.Success(
+                    ImportSource(
+                        content = downloaded.value.content.normalizedImportText(),
+                        subscriptionUrl = text.trim(),
+                        updateIntervalMs = downloaded.value.updateIntervalMs,
+                        requestMode = requestMode
+                    )
                 )
             }
+            is DownloadSubscriptionResult.Failure -> {
+                ImportSourceResult.Failure(downloaded.kind, downloaded.message)
+            }
+        }
     }
 
     private suspend fun downloadTextFromUrl(
         url: String,
         requestMode: SubscriptionRequestMode,
         subscriptionProxy: SubscriptionFetchProxy?
-    ): DownloadedSubscription? {
+    ): DownloadSubscriptionResult {
         val hwid = if (requestMode == SubscriptionRequestMode.Identity) {
             deviceIdentityProvider.hwid()
         } else {
@@ -504,7 +724,7 @@ class LocationsRepositoryImpl(
 
         return try {
             withProxyAuthentication(subscriptionProxy) {
-                val response = runCatching {
+                val response = try {
                     client.get(url) {
                         headers {
                             append(
@@ -523,20 +743,36 @@ class LocationsRepositoryImpl(
                             }
                         }
                     }
-                }.getOrNull() ?: return@withProxyAuthentication null
-
-                if (response.status.value !in 200..299) {
-                    return@withProxyAuthentication null
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    return@withProxyAuthentication error.toDownloadFailure()
                 }
 
-                val content = runCatching {
-                    response.bodyAsText()
-                }.getOrNull()?.takeIf { it.isNotBlank() }
-                    ?: return@withProxyAuthentication null
+                if (response.status.value !in 200..299) {
+                    return@withProxyAuthentication DownloadSubscriptionResult.Failure(
+                        LocationImportFailureKind.Http,
+                        "Subscription server returned HTTP ${response.status.value}"
+                    )
+                }
 
-                DownloadedSubscription(
-                    content = content,
-                    updateIntervalHours = response.profileUpdateIntervalHours()
+                val content = try {
+                    response.bodyAsText()
+                } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
+                    return@withProxyAuthentication error.toDownloadFailure()
+                }
+                if (content.isBlank()) {
+                    return@withProxyAuthentication DownloadSubscriptionResult.Failure(
+                        LocationImportFailureKind.EmptyResponse,
+                        "Subscription server returned an empty response"
+                    )
+                }
+
+                DownloadSubscriptionResult.Success(
+                    DownloadedSubscription(
+                        content = content,
+                        updateIntervalMs = response.profileUpdateIntervalMs()
+                    )
                 )
             }
         } finally {
@@ -549,6 +785,58 @@ class LocationsRepositoryImpl(
     private fun String.isHttpUrl(): Boolean {
         val value = trim().lowercase()
         return value.startsWith("http://") || value.startsWith("https://")
+    }
+
+    private fun String.isValidHttpUrl(): Boolean {
+        val input = trim()
+        if ('\n' in input || '\r' in input || input.any { it.isWhitespace() }) return false
+        val authority = input.substringAfter("://", missingDelimiterValue = "")
+            .takeWhile { it != '/' && it != '?' && it != '#' }
+        if (authority.isBlank()) return false
+        return runCatching {
+            val parsed = Url(input)
+            parsed.host.isNotBlank() &&
+                (parsed.protocol.name == "http" || parsed.protocol.name == "https")
+        }.getOrDefault(false)
+    }
+
+    private fun String.looksLikeUnsupportedUrl(): Boolean {
+        val value = trim()
+        val startsWithScheme = URL_SCHEME.containsMatchIn(value)
+        return startsWithScheme &&
+                !value.startsWith("http://", ignoreCase = true) &&
+                !value.startsWith("https://", ignoreCase = true) &&
+                !value.startsWith(OLCRTC_URI_PREFIX, ignoreCase = true)
+    }
+
+    private fun ImportSourceResult.Failure.toResolvedFailure(): ResolvedImportResult.Failure {
+        return ResolvedImportResult.Failure(kind, message)
+    }
+
+    private fun Throwable.toDownloadFailure(): DownloadSubscriptionResult.Failure {
+        val diagnostic = generateSequence(this) { it.cause }
+            .joinToString(" ") { error ->
+                "${error::class.simpleName.orEmpty()} ${error.message.orEmpty()}"
+            }
+            .lowercase()
+        return when {
+            listOf("certificate", "certpath", "ssl", "tls", "trust anchor", "hostname").any {
+                it in diagnostic
+            } -> DownloadSubscriptionResult.Failure(
+                LocationImportFailureKind.Tls,
+                "TLS certificate validation failed"
+            )
+            "timeout" in diagnostic || "timed out" in diagnostic -> {
+                DownloadSubscriptionResult.Failure(
+                    LocationImportFailureKind.Timeout,
+                    "Subscription request timed out"
+                )
+            }
+            else -> DownloadSubscriptionResult.Failure(
+                LocationImportFailureKind.Network,
+                "Could not connect to the subscription server"
+            )
+        }
     }
 
     private fun String.normalizedImportText(): String {
@@ -573,9 +861,9 @@ class LocationsRepositoryImpl(
     private fun parseImport(
         text: String,
         subscriptionUrl: String? = null,
-        updateIntervalHours: Int? = null
+        updateIntervalMs: Long? = null
     ): ParsedImport? {
-        parseOlcRtcText(text, subscriptionUrl, updateIntervalHours)?.let {
+        parseOlcRtcText(text, subscriptionUrl, updateIntervalMs)?.let {
             return ParsedImport(it, ImportMode.Additive)
         }
 
@@ -585,7 +873,7 @@ class LocationsRepositoryImpl(
             json.parseToJsonElement(text).jsonObject
         }.getOrNull() ?: return null
 
-        parseBundle(root, subscriptionUrl, updateIntervalHours)?.let {
+        parseBundle(root, subscriptionUrl, updateIntervalMs)?.let {
             return ParsedImport(it, ImportMode.Restore)
         }
 
@@ -595,7 +883,7 @@ class LocationsRepositoryImpl(
                     activeLocationId = it.storageId,
                     locations = listOf(
                         it.copy(
-                            metadata = it.metadata.withSubscriptionInterval(updateIntervalHours)
+                            metadata = it.metadata.withSubscriptionInterval(updateIntervalMs)
                         ).normalized()
                     )
                 ),
@@ -656,10 +944,77 @@ class LocationsRepositoryImpl(
         )
     }
 
+    private fun mergeImportedSubscription(
+        current: LocationBundleV4,
+        imported: LocationBundleV4,
+        subscriptionUrl: String
+    ): LocationBundleV4 {
+        val normalizedUrl = subscriptionUrl.trim()
+        val currentBundle = current.normalized()
+        val previousEntries = currentBundle.locations.filter {
+            it.subscriptionUrl?.trim() == normalizedUrl
+        }
+        if (previousEntries.isEmpty()) {
+            return mergeImportedBundle(
+                current = currentBundle,
+                imported = imported,
+                replaceMatchingStorageIds = false
+            )
+        }
+
+        val remainingEntries = currentBundle.locations.filterNot {
+            it.subscriptionUrl?.trim() == normalizedUrl
+        }
+        val usedStorageIds = remainingEntries.mapTo(mutableSetOf()) { it.storageId }
+        val previousBySignature = previousEntries
+            .groupBy { subscriptionSignature(it.location) }
+            .mapValues { (_, entries) -> entries.toMutableList() }
+        val manualInterval = previousEntries.firstNotNullOfOrNull {
+            it.metadata?.subscription?.manualUpdateIntervalMs
+        }
+
+        val updatedEntries = imported.locations.mapIndexed { index, entry ->
+            val previousPool = previousBySignature[subscriptionSignature(entry.location)]
+            val previousEntry = if (previousPool.isNullOrEmpty()) {
+                null
+            } else {
+                previousPool.removeAt(0)
+            }
+            val storageId = previousEntry?.storageId ?: uniqueStorageId(
+                base = entry.storageId.ifBlank {
+                    "imported_${entry.location.storageSlug().ifBlank { "location_${index + 1}" }}"
+                },
+                used = usedStorageIds
+            )
+            usedStorageIds.add(storageId)
+
+            entry.copy(
+                storageId = storageId,
+                subscriptionUrl = normalizedUrl,
+                dnsServer = entry.location.dnsServer
+                    .ifBlank { previousEntry?.location?.dnsServer.orEmpty() }
+                    .takeIf { it.isNotBlank() },
+                metadata = entry.metadata.withManualSubscriptionInterval(manualInterval)
+            ).normalized()
+        }
+
+        val mergedLocations = remainingEntries + updatedEntries
+        val previousIds = previousEntries.mapTo(mutableSetOf()) { it.storageId }
+        val activeLocationId = currentBundle.activeLocationId
+            ?.takeIf { activeId -> activeId !in previousIds || updatedEntries.any { it.storageId == activeId } }
+            ?: updatedEntries.firstOrNull()?.storageId
+            ?: remainingEntries.firstOrNull()?.storageId
+
+        return currentBundle.copy(
+            activeLocationId = activeLocationId,
+            locations = mergedLocations
+        )
+    }
+
     private fun parseBundle(
         root: JsonObject,
         subscriptionUrl: String? = null,
-        updateIntervalHours: Int? = null
+        updateIntervalMs: Long? = null
     ): LocationBundleV4? {
         val locationsElement = root["locations"] ?: return null
 
@@ -670,7 +1025,7 @@ class LocationsRepositoryImpl(
 
             decodeLocationEntry(item, subscriptionUrl)?.let {
                 return@mapNotNull it.copy(
-                    metadata = it.metadata.withSubscriptionInterval(updateIntervalHours)
+                    metadata = it.metadata.withSubscriptionInterval(updateIntervalMs)
                 ).normalized()
             }
 
@@ -680,7 +1035,7 @@ class LocationsRepositoryImpl(
 
             parseSingleLocation(item, storageId, subscriptionUrl)?.let { entry ->
                 entry.copy(
-                    metadata = entry.metadata.withSubscriptionInterval(updateIntervalHours)
+                    metadata = entry.metadata.withSubscriptionInterval(updateIntervalMs)
                 ).normalized()
             }
         } ?: return null
@@ -779,10 +1134,19 @@ class LocationsRepositoryImpl(
             transport = firstNotBlank(
                 source.string("transport"),
                 root.string("transport"),
-                if (transportArgs.isNotBlank()) LocationConfig.TRANSPORT_VP8CHANNEL else null
+                if (transportArgs.isNotBlank()) LocationConfig.TRANSPORT_VP8CHANNEL else null,
+                LocationConfig.defaultTransportForProvider(provider)
             ),
             vp8Fps = vp8Fps,
-            vp8Batch = vp8Batch
+            vp8Batch = vp8Batch,
+            dnsServer = firstNotBlank(
+                source.string("dns_server"),
+                source.string("dnsServer"),
+                source.string("dns"),
+                root.string("dns_server"),
+                root.string("dnsServer"),
+                root.string("dns")
+            )
         ).normalized()
 
         if (!location.isComplete()) return null
@@ -802,7 +1166,7 @@ class LocationsRepositoryImpl(
     private fun parseOlcRtcText(
         text: String,
         subscriptionUrl: String? = null,
-        updateIntervalHours: Int? = null
+        updateIntervalMs: Long? = null
     ): LocationBundleV4? {
         if (!text.contains(OLCRTC_URI_PREFIX)) return null
 
@@ -844,7 +1208,7 @@ class LocationsRepositoryImpl(
         if (locations.isEmpty()) return null
 
         val subscriptionMetadata = buildSubscriptionMetadata(subscriptionFields)
-            .withSubscriptionInterval(updateIntervalHours)
+            .withSubscriptionInterval(updateIntervalMs)
         val usedStorageIds = mutableSetOf<String>()
 
         val entries = locations.mapIndexed { index, (parsed, fields) ->
@@ -935,7 +1299,8 @@ class LocationsRepositoryImpl(
             color = fields["color"],
             icon = fields["icon"],
             used = fields["used"],
-            available = fields["available"]
+            available = fields["available"],
+            updateIntervalMs = parseRefreshDurationMs(fields["refresh"])
         ).normalized().takeUnless { it.isEmpty() }
     }
 
@@ -1068,7 +1433,7 @@ class LocationsRepositoryImpl(
         return parts.getOrNull(index + 1)?.toIntOrNull()
     }
 
-    private fun HttpResponse.profileUpdateIntervalHours(): Int? {
+    private fun HttpResponse.profileUpdateIntervalMs(): Long? {
         return headers["profile-update-interval"]
             ?.trim()
             ?.toIntOrNull()
@@ -1076,44 +1441,80 @@ class LocationsRepositoryImpl(
                 SubscriptionMetadata.MIN_UPDATE_INTERVAL_HOURS,
                 SubscriptionMetadata.MAX_UPDATE_INTERVAL_HOURS
             )
+            ?.toLong()
+            ?.times(SubscriptionMetadata.HOUR_MS)
     }
 
-    private fun List<LocationEntry>.subscriptionUpdateIntervalHours(): Int? {
+    private fun List<LocationEntry>.subscriptionUpdateIntervalMs(): Long? {
         return firstNotNullOfOrNull { entry ->
-            entry.metadata?.subscription?.updateIntervalHours
+            entry.metadata?.subscription?.updateIntervalMs
         }
     }
 
-    private fun SubscriptionMetadata?.withSubscriptionInterval(hours: Int?): SubscriptionMetadata? {
-        if (hours == null) return this
+    private fun SubscriptionMetadata?.withSubscriptionInterval(intervalMs: Long?): SubscriptionMetadata? {
+        if (intervalMs == null) return this
         return (this ?: SubscriptionMetadata()).copy(
-            updateIntervalHours = hours
+            updateIntervalMs = intervalMs
         ).normalized()
     }
 
-    private fun LocationMetadata?.withSubscriptionInterval(hours: Int?): LocationMetadata? {
-        if (hours == null) return this
-        return withSubscriptionRefreshState(
-            updateIntervalHours = hours,
-            lastRefreshAtEpochMs = this?.subscription?.lastRefreshAtEpochMs
+    private fun LocationMetadata?.withSubscriptionInterval(intervalMs: Long?): LocationMetadata? {
+        if (intervalMs == null) return this
+        val subscription = this?.subscription ?: SubscriptionMetadata()
+        return (this ?: LocationMetadata()).copy(
+            subscription = subscription.copy(updateIntervalMs = intervalMs)
+        ).normalized()
+    }
+
+    private fun LocationMetadata?.withManualSubscriptionInterval(intervalMs: Long?): LocationMetadata {
+        val subscription = this?.subscription ?: SubscriptionMetadata()
+        return (this ?: LocationMetadata()).copy(
+            subscription = subscription.copy(manualUpdateIntervalMs = intervalMs)
         )
+            .normalized()
     }
 
     private fun LocationMetadata?.withSubscriptionRefreshState(
-        updateIntervalHours: Int,
-        lastRefreshAtEpochMs: Long?
+        updateIntervalMs: Long,
+        manualUpdateIntervalMs: Long?,
+        lastRefreshAttemptAtEpochMs: Long,
+        lastRefreshAtEpochMs: Long,
+        consecutiveRefreshFailures: Int
     ): LocationMetadata {
         val subscription = this?.subscription ?: SubscriptionMetadata()
         return (this ?: LocationMetadata()).copy(
             subscription = subscription.copy(
-                updateIntervalHours = updateIntervalHours,
-                lastRefreshAtEpochMs = lastRefreshAtEpochMs
+                updateIntervalMs = updateIntervalMs,
+                manualUpdateIntervalMs = manualUpdateIntervalMs,
+                lastRefreshAttemptAtEpochMs = lastRefreshAttemptAtEpochMs,
+                lastRefreshAtEpochMs = lastRefreshAtEpochMs,
+                consecutiveRefreshFailures = consecutiveRefreshFailures
             )
         ).normalized()
+    }
+
+    private fun LocationMetadata?.withSubscriptionRefreshFailure(attemptAtEpochMs: Long): LocationMetadata {
+        val subscription = this?.subscription ?: SubscriptionMetadata(
+            updateIntervalMs = SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_MS
+        )
+        return (this ?: LocationMetadata()).copy(
+            subscription = subscription.copy(
+                lastRefreshAttemptAtEpochMs = attemptAtEpochMs,
+                consecutiveRefreshFailures = subscription.consecutiveRefreshFailures + 1
+            )
+        ).normalized()
+    }
+
+    private fun parseRefreshDurationMs(value: String?): Long? {
+        return parseSubscriptionRefreshIntervalMs(
+            value = value.orEmpty(),
+            clampToSupportedRange = true
+        )
     }
 
     private companion object {
         const val OLCRTC_URI_PREFIX = "olcrtc://"
         const val UTF8_BOM = "\uFEFF"
+        val URL_SCHEME = Regex("^[A-Za-z][A-Za-z0-9+.-]*://")
     }
 }

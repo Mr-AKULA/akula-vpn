@@ -58,8 +58,12 @@ object ConfigShareService {
                         ?.takeIf { it.isNotBlank() }
                         ?: first.name.takeIf { it.isNotBlank() }
                         ?: first.location.displayName(),
+                    updateIntervalMs = metadata?.effectiveUpdateIntervalMs(),
+                    sourceUpdateIntervalMs = metadata?.updateIntervalMs,
+                    manualUpdateIntervalMs = metadata?.manualUpdateIntervalMs,
                     updateIntervalHours = metadata?.updateIntervalHours,
                     lastRefreshAtEpochMs = metadata?.lastRefreshAtEpochMs,
+                    nextRefreshAtEpochMs = metadata?.nextRefreshAtEpochMs(),
                     locationCount = subscriptionEntries.size
                 )
             }
@@ -69,7 +73,11 @@ object ConfigShareService {
 data class SubscriptionShareItem(
     val url: String,
     val name: String,
+    val updateIntervalMs: Long? = null,
+    val sourceUpdateIntervalMs: Long? = null,
+    val manualUpdateIntervalMs: Long? = null,
     val updateIntervalHours: Int?,
     val lastRefreshAtEpochMs: Long?,
+    val nextRefreshAtEpochMs: Long? = null,
     val locationCount: Int
 )

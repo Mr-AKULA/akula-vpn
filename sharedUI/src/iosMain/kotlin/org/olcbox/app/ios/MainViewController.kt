@@ -24,6 +24,8 @@ import org.olcbox.app.data.share.SubscriptionShareItem
 import org.olcbox.app.ui.OlcboxAppContent
 import org.olcbox.app.ui.components.ApplicationSettingsSheet
 import org.olcbox.app.ui.components.ApplicationUpdateOfferSheet
+import org.olcbox.app.ui.components.IosSocksOnboardingDialog
+import org.olcbox.app.ui.components.socksSettingsText
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
 import org.olcbox.app.ui.features.locations.LocationItem
 import org.olcbox.app.ui.features.locations.LocationViewModel
@@ -38,6 +40,7 @@ import org.olcbox.app.update.isDownloaded
 import org.olcbox.app.update.isUpdateCheckDue
 import org.olcbox.app.update.shouldShowOffer
 import org.olcbox.app.vpn.IosVpnManager
+import platform.Foundation.NSUserDefaults
 import platform.UIKit.UIViewController
 
 class IosAppFactory {
@@ -109,6 +112,11 @@ private fun IosApp(
     var updateStatusText by remember { mutableStateOf<String?>(null) }
     var updateDownloadProgress by remember { mutableStateOf<Float?>(null) }
     var updateOffer by remember { mutableStateOf<AppUpdateInfo?>(null) }
+    var showSocksOnboarding by remember {
+        mutableStateOf(
+            !NSUserDefaults.standardUserDefaults.boolForKey(IOS_SOCKS_ONBOARDING_SEEN_KEY)
+        )
+    }
 
     fun reloadLocationsAfterImport(onComplete: () -> Unit = {}) {
         dependencies.locationViewModel.loadLocations {
@@ -196,11 +204,14 @@ private fun IosApp(
                 onImportFileRequested = {
                     platformBridge.pickConfigText(object : IosTextCallback {
                         override fun onSuccess(text: String) {
-                            dependencies.homeViewModel.onImportFullConfig(text) {
-                                reloadLocationsAfterImport {
-                                    platformBridge.showMessage("Config imported")
+                            dependencies.homeViewModel.onImportFullConfig(
+                                rawText = text,
+                                onComplete = {
+                                    reloadLocationsAfterImport {
+                                        platformBridge.showMessage("Config imported")
+                                    }
                                 }
-                            }
+                            )
                         }
 
                         override fun onError(message: String) {
@@ -281,12 +292,35 @@ private fun IosApp(
                     onSubscriptionShareClick = { url ->
                         platformBridge.shareText("Subscription", ConfigShareService.subscriptionQrText(url))
                     },
-                    onSubscriptionRefreshClick = { url ->
+                    onSubscriptionRefreshClick = { url, onFinished ->
                         dependencies.homeViewModel.refreshSubscription(url) { updatedCount ->
                             reloadLocationsAfterImport {
                                 dependencies.homeViewModel.restartVpnIfRunning()
                                 platformBridge.showMessage(
                                     if (updatedCount > 0) "Subscription updated" else "Subscription not updated"
+                                )
+                                onFinished()
+                            }
+                        }
+                    },
+                    onSubscriptionRefreshIntervalChanged = { url, intervalMs ->
+                        dependencies.homeViewModel.setSubscriptionRefreshInterval(url, intervalMs) {
+                            dependencies.locationViewModel.loadLocations()
+                            platformBridge.showMessage(
+                                if (intervalMs == null) {
+                                    "Subscription refresh set to Auto"
+                                } else {
+                                    "Subscription refresh rate saved"
+                                }
+                            )
+                        }
+                    },
+                    onSubscriptionDeleteClick = { url ->
+                        dependencies.homeViewModel.deleteSubscription(url) { removedLocations ->
+                            reloadLocationsAfterImport {
+                                dependencies.homeViewModel.restartVpnIfRunning()
+                                platformBridge.showMessage(
+                                    "Subscription deleted · $removedLocations locations removed"
                                 )
                             }
                         }
@@ -306,6 +340,23 @@ private fun IosApp(
                 )
             }
 
+            if (showSocksOnboarding) {
+                IosSocksOnboardingDialog(
+                    settings = socksProxySettings,
+                    onCopy = {
+                        platformBridge.writeClipboard(socksSettingsText(socksProxySettings))
+                        platformBridge.showMessage("SOCKS5 settings copied")
+                    },
+                    onDismiss = {
+                        NSUserDefaults.standardUserDefaults.setBool(
+                            true,
+                            forKey = IOS_SOCKS_ONBOARDING_SEEN_KEY
+                        )
+                        showSocksOnboarding = false
+                    }
+                )
+            }
+
             updateOffer?.let { info ->
                 ApplicationUpdateOfferSheet(
                     info = info,
@@ -317,6 +368,8 @@ private fun IosApp(
         }
     }
 }
+
+private const val IOS_SOCKS_ONBOARDING_SEEN_KEY = "ios_socks_onboarding_seen_v1"
 
 private fun iosSubscriptionItems(items: List<LocationItem>): List<SubscriptionShareItem> {
     return items
@@ -336,8 +389,12 @@ private fun iosSubscriptionItems(items: List<LocationItem>): List<SubscriptionSh
                 url = url,
                 name = metadata?.name?.takeIf { it.isNotBlank() }
                     ?: locations.first().fullName,
+                updateIntervalMs = metadata?.effectiveUpdateIntervalMs(),
+                sourceUpdateIntervalMs = metadata?.updateIntervalMs,
+                manualUpdateIntervalMs = metadata?.manualUpdateIntervalMs,
                 updateIntervalHours = metadata?.updateIntervalHours,
                 lastRefreshAtEpochMs = metadata?.lastRefreshAtEpochMs,
+                nextRefreshAtEpochMs = metadata?.nextRefreshAtEpochMs(),
                 locationCount = locations.size
             )
         }

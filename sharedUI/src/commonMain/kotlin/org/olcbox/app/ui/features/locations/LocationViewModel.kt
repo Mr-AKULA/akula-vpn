@@ -17,7 +17,6 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationMetadata
-import org.olcbox.app.data.model.SubscriptionMetadata
 import org.olcbox.app.data.repository.LocationsRepository
 
 data class LocationItem(
@@ -71,10 +70,6 @@ class LocationViewModel(
     var editingConfig by mutableStateOf(LocationConfig())
     var editingName by mutableStateOf("")
     var editingId by mutableStateOf<String?>(null)
-    var editingSubscriptionUrl by mutableStateOf<String?>(null)
-        private set
-    var editingSubscriptionIntervalHours by mutableStateOf(SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS.toString())
-        private set
     var editingServiceProvider by mutableStateOf(LocationConfig.DEFAULT_BYPASS_PROVIDER)
         private set
 
@@ -90,10 +85,14 @@ class LocationViewModel(
     var keyError by mutableStateOf<String?>(null)
         private set
 
+    var dnsError by mutableStateOf<String?>(null)
+        private set
+
     val isFormValid: Boolean
         get() = nameError == null &&
                 serverError == null &&
                 keyError == null &&
+                dnsError == null &&
                 editingName.isNotBlank() &&
                 editingConfig.id.isNotBlank() &&
                 editingConfig.key.isNotBlank()
@@ -325,6 +324,7 @@ class LocationViewModel(
         nameError = null
         serverError = null
         keyError = null
+        dnsError = null
         isSaving = false
         providerDrafts.clear()
 
@@ -332,18 +332,11 @@ class LocationViewModel(
             editingId = null
             editingConfig = LocationConfig()
             editingName = ""
-            editingSubscriptionUrl = null
-            editingSubscriptionIntervalHours = SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS.toString()
         } else {
             val location = locations.find { it.storageId == id }
             editingId = id
             editingConfig = location?.config?.normalized() ?: LocationConfig()
             editingName = editingConfig.displayName()
-            editingSubscriptionUrl = location?.subscriptionUrl
-            editingSubscriptionIntervalHours = (
-                location?.metadata?.subscription?.updateIntervalHours
-                    ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS
-                ).toString()
         }
         val provider = LocationConfig.normalizeProvider(editingConfig.bypassProvider)
         editingServiceProvider = if (provider == LocationConfig.PROVIDER_JITSI) {
@@ -392,7 +385,11 @@ class LocationViewModel(
 
         editingConfig = editingConfig.copy(
             bypassProvider = provider,
-            transport = LocationConfig.normalizeTransport(editingConfig.transport, provider),
+            transport = if (provider == LocationConfig.PROVIDER_JITSI) {
+                LocationConfig.TRANSPORT_DATACHANNEL
+            } else {
+                LocationConfig.normalizeTransport(editingConfig.transport, provider)
+            },
             id = restored.room,
             key = restored.key
         )
@@ -418,8 +415,14 @@ class LocationViewModel(
         )
     }
 
-    fun onSubscriptionIntervalChanged(value: String) {
-        editingSubscriptionIntervalHours = value.filter { it.isDigit() }.take(3)
+    fun onDnsServerChanged(value: String) {
+        editingConfig = editingConfig.copy(
+            dnsServer = value
+                .replace("\r", "")
+                .replace("\n", "")
+                .take(LocationConfig.MAX_DNS_SERVER_LENGTH)
+        )
+        validateDnsServer(editingConfig.dnsServer)
     }
 
     private fun validateName(name: String) {
@@ -451,34 +454,39 @@ class LocationViewModel(
         }
     }
 
+    private fun validateDnsServer(dnsServer: String) {
+        dnsError = if (LocationConfig.isValidDnsServer(dnsServer)) {
+            null
+        } else {
+            "Use host:port or [IPv6]:port; leave empty for Auto"
+        }
+    }
+
     fun saveEditing(onComplete: () -> Unit) {
         validateName(editingName)
         validateServer(editingConfig.id)
         validateKey(editingConfig.key)
+        validateDnsServer(editingConfig.dnsServer)
 
         if (!isFormValid || isSaving) return
 
         viewModelScope.launch {
             isSaving = true
+            try {
+                val id = editingId ?: "custom_${(100..999).random()}"
+                val finalConfig = editingConfig.copy(name = editingName).normalized()
 
-            val id = editingId ?: "custom_${(100..999).random()}"
-            val finalConfig = editingConfig.copy(name = editingName).normalized()
+                locationsRepository.saveLocation(id, finalConfig)
+                locationsRepository.setActiveLocationId(id)
 
-            locationsRepository.saveLocation(id, finalConfig)
-            editingSubscriptionUrl?.let { url ->
-                val interval = editingSubscriptionIntervalHours.toIntOrNull()
-                    ?: SubscriptionMetadata.DEFAULT_UPDATE_INTERVAL_HOURS
-                locationsRepository.setSubscriptionUpdateInterval(url, interval)
+                loadLocations()
+
+                delay(600)
+
+                onComplete()
+            } finally {
+                isSaving = false
             }
-            locationsRepository.setActiveLocationId(id)
-
-            loadLocations()
-
-            delay(600)
-
-            onComplete()
-
-            isSaving = false
         }
     }
 

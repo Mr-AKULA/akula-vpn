@@ -10,14 +10,22 @@ interface LocationsRepository {
     suspend fun getBundle(): LocationBundleV4
     suspend fun saveBundle(bundle: LocationBundleV4)
     suspend fun exportBundle(): String
-    suspend fun importText(text: String, subscriptionProxy: SubscriptionFetchProxy? = null): Boolean
+    suspend fun importTextDetailed(
+        text: String,
+        subscriptionProxy: SubscriptionFetchProxy? = null
+    ): LocationImportResult
+    suspend fun importText(text: String, subscriptionProxy: SubscriptionFetchProxy? = null): Boolean {
+        return importTextDetailed(text, subscriptionProxy) is LocationImportResult.Success
+    }
     suspend fun refreshSubscriptions(subscriptionProxy: SubscriptionFetchProxy? = null): Int
     suspend fun refreshSubscription(
         subscriptionUrl: String,
         subscriptionProxy: SubscriptionFetchProxy? = null
     ): Int
     suspend fun refreshDueSubscriptions(subscriptionProxy: SubscriptionFetchProxy? = null): Int
-    suspend fun setSubscriptionUpdateInterval(subscriptionUrl: String, hours: Int)
+    suspend fun nextSubscriptionRefreshAtEpochMs(): Long?
+    suspend fun setSubscriptionUpdateInterval(subscriptionUrl: String, intervalMs: Long?)
+    suspend fun deleteSubscription(subscriptionUrl: String): Int
     suspend fun saveLocation(storageId: String, location: LocationConfig)
     suspend fun loadLocation(storageId: String): LocationConfig?
     suspend fun deleteLocation(storageId: String)
@@ -26,6 +34,29 @@ interface LocationsRepository {
     suspend fun setActiveLocationId(storageId: String?)
     suspend fun getActiveLocation(): LocationEntry?
     suspend fun getDeviceIdentity(): String
+}
+
+sealed interface LocationImportResult {
+    data class Success(
+        val importedLocations: Int,
+        val subscriptionUrl: String? = null
+    ) : LocationImportResult
+
+    data class Failure(
+        val kind: LocationImportFailureKind,
+        val message: String
+    ) : LocationImportResult
+}
+
+enum class LocationImportFailureKind {
+    EmptyInput,
+    InvalidUrl,
+    Network,
+    Timeout,
+    Tls,
+    Http,
+    EmptyResponse,
+    UnsupportedFormat
 }
 
 data class SubscriptionFetchProxy(

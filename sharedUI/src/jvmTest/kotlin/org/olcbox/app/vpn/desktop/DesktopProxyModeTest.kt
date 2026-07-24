@@ -1,6 +1,8 @@
 package org.olcbox.app.vpn.desktop
 
 import org.olcbox.app.data.model.LocationConfig
+import org.olcbox.app.vpn.DesktopRoutingMode
+import org.olcbox.app.vpn.DesktopSocksProxySettings
 import org.olcbox.app.vpn.olcRtcNativeLibrarySpec
 import java.nio.file.Path
 import kotlin.test.Test
@@ -9,6 +11,20 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DesktopProxyModeTest {
+
+    @Test
+    fun desktopRoutingModesAlwaysOfferAutoAndLocalSocks() {
+        val available = DesktopRoutingMode.availableForCurrentPlatform()
+
+        assertTrue(DesktopRoutingMode.Auto in available)
+        assertTrue(DesktopRoutingMode.LocalSocks in available)
+        assertEquals(
+            DesktopRoutingMode.LocalSocks,
+            DesktopSocksProxySettings(routingMode = DesktopRoutingMode.LocalSocks)
+                .normalized()
+                .routingMode
+        )
+    }
 
     @Test
     fun pacRoutesLocalTrafficDirectAndEverythingElseThroughSocks() {
@@ -73,15 +89,8 @@ class DesktopProxyModeTest {
             assertContains(yaml, "id: 'room-$provider'")
             assertContains(yaml, "port: 10808")
             assertContains(yaml, "dns: '192.168.43.1:53'")
-            if (LocationConfig.normalizeProvider(provider) == LocationConfig.PROVIDER_JITSI) {
-                assertContains(yaml, "tls:")
-                assertContains(yaml, "insecure_skip_verify: true")
-                assertContains(yaml, "jitsi:")
-                assertContains(yaml, "insecure: true")
-            } else {
-                assertTrue("insecure_skip_verify" !in yaml)
-                assertTrue("jitsi:" !in yaml)
-            }
+            assertTrue("insecure_skip_verify" !in yaml)
+            assertTrue("jitsi:" !in yaml)
             if (expectedTransport == LocationConfig.TRANSPORT_VP8CHANNEL) {
                 assertContains(yaml, "vp8:")
                 assertContains(yaml, "fps: 60")
@@ -253,6 +262,8 @@ class DesktopProxyModeTest {
         assertContains(config, "udp: 'tcp'")
         assertContains(config, "mapdns:")
         assertContains(config, "network: 100.64.0.0")
+        assertContains(config, "task-stack-size: 86016")
+        assertContains(config, "tcp-buffer-size: 65536")
     }
 
     @Test

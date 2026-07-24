@@ -4,16 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.IO
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import org.olcbox.app.data.exporter.LogExporter
 import org.olcbox.app.data.importer.ConfigImporter
 import org.olcbox.app.data.model.LocationConfig
+import org.olcbox.app.data.repository.LocationImportResult
 import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.ui.features.locations.LocationItem
 import org.olcbox.app.vpn.VpnManager
@@ -37,6 +41,7 @@ class HomeScreenViewModel(
             startBlockedReason = "Add a location first"
         )
     )
+    private val subscriptionRefreshWake = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val state get() = _state.asStateFlow()
     val logs get() = vpnManager.logs
 
@@ -49,6 +54,7 @@ class HomeScreenViewModel(
                 .drop(1)
                 .collect {
                     loadCurrentConfigNow()
+                    subscriptionRefreshWake.tryEmit(Unit)
                 }
         }
 
@@ -168,7 +174,21 @@ class HomeScreenViewModel(
             VpnStatus.Connecting,
             VpnStatus.Reconnecting -> viewModelScope.launch {
                 _state.update { it.copy(isVpnLoading = true) }
-                vpnManager.startVpn()
+                val active = locationsRepository.getActiveLocation()
+                if (active == null || !active.location.isComplete()) {
+                    vpnManager.stopVpn()
+                    loadCurrentConfigNow()
+                    _state.update {
+                        it.copy(
+                            isVpnConnected = false,
+                            isVpnLoading = false,
+                            canStartVpn = false,
+                            startBlockedReason = "Add a valid location first"
+                        )
+                    }
+                } else {
+                    vpnManager.startVpn()
+                }
             }
 
             VpnStatus.Disconnected,
@@ -227,8 +247,22 @@ class HomeScreenViewModel(
         onError: (String) -> Unit = {}
     ) {
         configImporter.getFromClipboard()?.let { text ->
-            onImportFullConfig(text, onComplete, onError)
+            onImportFullConfig(
+                rawText = text,
+                onComplete = onComplete,
+                onError = onError
+            )
         } ?: onError("No clipboard data found")
+    }
+
+    fun readImportTextFromClipboard(
+        onText: (String) -> Unit,
+        onError: (String) -> Unit = {}
+    ) {
+        configImporter.getFromClipboard()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(onText)
+            ?: onError("No clipboard data found")
     }
 
     fun onFileSelected(
@@ -241,13 +275,18 @@ class HomeScreenViewModel(
             if (text == null) {
                 onError("Could not read config file")
             } else {
-                onImportFullConfig(text, onComplete, onError)
+                onImportFullConfig(
+                    rawText = text,
+                    onComplete = onComplete,
+                    onError = onError
+                )
             }
         }
     }
 
     fun onImportFullConfig(
         rawText: String,
+        subscriptionRefreshIntervalMs: Long? = null,
         onComplete: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -257,28 +296,53 @@ class HomeScreenViewModel(
         }
         viewModelScope.launch {
             try {
-                val imported = withContext(Dispatchers.IO) {
-                    locationsRepository.importText(
+                val result = withContext(Dispatchers.IO) {
+                    locationsRepository.importTextDetailed(
                         text = rawText,
                         subscriptionProxy = vpnManager.subscriptionFetchProxy()
                     )
                 }
-                if (!imported) {
-                    onError("No valid Olcbox config found")
-                    return@launch
+                when (result) {
+                    is LocationImportResult.Success -> {
+                        if (result.subscriptionUrl != null && subscriptionRefreshIntervalMs != null) {
+                            locationsRepository.setSubscriptionUpdateInterval(
+                                result.subscriptionUrl,
+                                subscriptionRefreshIntervalMs
+                            )
+                        }
+                        loadCurrentConfigNow()
+                        onComplete()
+                    }
+                    is LocationImportResult.Failure -> {
+                        onError(result.message)
+                    }
                 }
-                loadCurrentConfigNow()
-                onComplete()
             } catch (e: Exception) {
                 val message = e.message ?: "Import failed"
-                _state.update {
-                    it.copy(
-                        canStartVpn = false,
-                        startBlockedReason = message
-                    )
-                }
                 onError(message)
             }
+        }
+    }
+
+    fun setSubscriptionRefreshInterval(
+        subscriptionUrl: String,
+        intervalMs: Long?,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            locationsRepository.setSubscriptionUpdateInterval(subscriptionUrl, intervalMs)
+            onComplete()
+        }
+    }
+
+    fun deleteSubscription(
+        subscriptionUrl: String,
+        onComplete: (removedLocations: Int) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val removedLocations = locationsRepository.deleteSubscription(subscriptionUrl)
+            loadCurrentConfigNow()
+            onComplete(removedLocations)
         }
     }
 
@@ -310,12 +374,29 @@ class HomeScreenViewModel(
 
     private fun startSubscriptionAutoRefresh() {
         viewModelScope.launch {
-            refreshDueSubscriptionsIfNeeded()
             while (true) {
-                delay(SUBSCRIPTION_AUTO_REFRESH_POLL_MS)
-                refreshDueSubscriptionsIfNeeded()
+                try {
+                    refreshDueSubscriptionsIfNeeded()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // Keep the scheduler alive; failed subscriptions retain their last good config.
+                }
+                val nextRefreshAt = locationsRepository.nextSubscriptionRefreshAtEpochMs()
+                val now = kotlin.time.Clock.System.now().toEpochMilliseconds()
+                val waitMs = nextRefreshAt
+                    ?.minus(now)
+                    ?.coerceAtLeast(MIN_SUBSCRIPTION_REFRESH_WAIT_MS)
+                    ?: IDLE_SUBSCRIPTION_REFRESH_WAIT_MS
+                withTimeoutOrNull(waitMs) {
+                    subscriptionRefreshWake.first()
+                }
             }
         }
+    }
+
+    fun onForeground() {
+        subscriptionRefreshWake.tryEmit(Unit)
     }
 
     private suspend fun refreshDueSubscriptionsIfNeeded() {
@@ -332,6 +413,7 @@ class HomeScreenViewModel(
     private fun buildLogsExport(logs: List<String>): String {
         return buildString {
             appendLine("Olcbox application logs")
+            appendLine("Build: ${org.olcbox.app.CurrentAppInfo.diagnosticVersion}")
             appendLine("Entries: ${logs.size}")
             appendLine()
             logs.forEachIndexed { index, line ->
@@ -351,4 +433,5 @@ data class HomeScreenState(
     val startBlockedReason: String?
 )
 
-private const val SUBSCRIPTION_AUTO_REFRESH_POLL_MS = 60L * 60L * 1_000L
+private const val MIN_SUBSCRIPTION_REFRESH_WAIT_MS = 1_000L
+private const val IDLE_SUBSCRIPTION_REFRESH_WAIT_MS = 24L * 60L * 60L * 1_000L

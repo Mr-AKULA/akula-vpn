@@ -33,6 +33,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.ContentPaste
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
@@ -42,8 +43,10 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -72,10 +75,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.olcbox.app.CurrentAppInfo
+import org.olcbox.app.data.model.formatSubscriptionRefreshInterval
+import org.olcbox.app.data.model.parseSubscriptionRefreshIntervalMs
 import org.olcbox.app.data.share.SubscriptionShareItem
 import org.olcbox.app.ui.features.home.components.LogLines
 import org.olcbox.app.update.AppUpdateInfo
 import org.olcbox.app.update.AppUpdateSettings
+import kotlin.time.Clock
 import kotlin.time.Instant
 
 data class ApplicationSocksProxySettings(
@@ -94,6 +100,12 @@ data class ApplicationSocksProxySettings(
     }
 }
 
+data class ApplicationRoutingModeOption(
+    val id: String,
+    val title: String,
+    val subtitle: String
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ApplicationSettingsSheet(
@@ -106,6 +118,10 @@ fun ApplicationSettingsSheet(
     connectionSummary: String,
     connectionDetails: List<Pair<String, String>>,
     socksProxySettings: ApplicationSocksProxySettings? = null,
+    routingModeOptions: List<ApplicationRoutingModeOption> = listOf(
+        ApplicationRoutingModeOption("proxy", "Proxy", "Local SOCKS endpoint")
+    ),
+    selectedRoutingModeId: String = routingModeOptions.firstOrNull()?.id.orEmpty(),
     isConnectionActive: Boolean = false,
     onDismiss: () -> Unit,
     onCopyConfigClick: () -> Unit,
@@ -116,12 +132,17 @@ fun ApplicationSettingsSheet(
     onDownloadUpdateClick: (AppUpdateInfo) -> Unit,
     onLaterUpdateClick: (AppUpdateInfo) -> Unit,
     onSubscriptionShareClick: (String) -> Unit,
-    onSubscriptionRefreshClick: (String) -> Unit,
+    onSubscriptionRefreshClick: (String, () -> Unit) -> Unit,
+    onSubscriptionRefreshIntervalChanged: (String, Long?) -> Unit = { _, _ -> },
+    onSubscriptionDeleteClick: (String) -> Unit = {},
     onSocksProxySettingsSaved: (String, String, Int) -> Unit = { _, _, _ -> },
-    onSocksProxyPasswordRegenerated: () -> Unit = {}
+    onSocksProxyPasswordRegenerated: () -> Unit = {},
+    onRoutingModeSelected: (String) -> Unit = {}
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var route by remember { mutableStateOf(SharedSettingsRoute.Hub) }
+    var selectedSubscriptionUrl by remember { mutableStateOf<String?>(null) }
+    var refreshingSubscriptionUrl by remember { mutableStateOf<String?>(null) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -172,12 +193,19 @@ fun ApplicationSettingsSheet(
                     summary = connectionSummary,
                     details = connectionDetails,
                     socksProxySettings = socksProxySettings,
+                    routingModeTitle = routingModeOptions
+                        .firstOrNull { it.id == selectedRoutingModeId }
+                        ?.title
+                        ?: "Proxy",
                     onConnectionModeClick = { route = SharedSettingsRoute.ConnectionMode },
                     onSocksProxyClick = { route = SharedSettingsRoute.SocksProxy },
                     onBack = { route = SharedSettingsRoute.Hub }
                 )
 
                 SharedSettingsRoute.ConnectionMode -> SharedConnectionModeSettingsContent(
+                    options = routingModeOptions,
+                    selectedId = selectedRoutingModeId,
+                    onSelected = onRoutingModeSelected,
                     onBack = { route = SharedSettingsRoute.Connection }
                 )
 
@@ -195,9 +223,47 @@ fun ApplicationSettingsSheet(
                     subscriptions = subscriptions,
                     onBack = { route = SharedSettingsRoute.Hub },
                     onCopyConfigClick = onCopyConfigClick,
-                    onShareClick = onSubscriptionShareClick,
-                    onRefreshClick = onSubscriptionRefreshClick
+                    onSubscriptionClick = { item ->
+                        selectedSubscriptionUrl = item.url
+                        route = SharedSettingsRoute.SubscriptionDetails
+                    }
                 )
+
+                SharedSettingsRoute.SubscriptionDetails -> {
+                    val item = subscriptions.firstOrNull { it.url == selectedSubscriptionUrl }
+                    if (item == null) {
+                        SharedSubscriptionsSettingsContent(
+                            subscriptions = subscriptions,
+                            onBack = { route = SharedSettingsRoute.Hub },
+                            onCopyConfigClick = onCopyConfigClick,
+                            onSubscriptionClick = { selected ->
+                                selectedSubscriptionUrl = selected.url
+                                route = SharedSettingsRoute.SubscriptionDetails
+                            }
+                        )
+                    } else {
+                        SharedSubscriptionDetailsContent(
+                            item = item,
+                            isRefreshing = refreshingSubscriptionUrl == item.url,
+                            onBack = { route = SharedSettingsRoute.Subscriptions },
+                            onShareClick = { onSubscriptionShareClick(item.url) },
+                            onRefreshClick = {
+                                refreshingSubscriptionUrl = item.url
+                                onSubscriptionRefreshClick(item.url) {
+                                    refreshingSubscriptionUrl = null
+                                }
+                            },
+                            onRefreshIntervalChanged = { intervalMs ->
+                                onSubscriptionRefreshIntervalChanged(item.url, intervalMs)
+                            },
+                            onDeleteClick = {
+                                onSubscriptionDeleteClick(item.url)
+                                selectedSubscriptionUrl = null
+                                route = SharedSettingsRoute.Subscriptions
+                            }
+                        )
+                    }
+                }
 
                 SharedSettingsRoute.Updates -> SharedUpdatesSettingsContent(
                     settings = updateSettings,
@@ -278,7 +344,8 @@ private fun SharedSettingsHubContent(
             contentAlignment = Alignment.Center
         ) {
             Text(
-                text = "${CurrentAppInfo.value.name} ${CurrentAppInfo.value.version}",
+                text = "${CurrentAppInfo.value.name} ${CurrentAppInfo.value.version} · " +
+                    "olcrtc ${CurrentAppInfo.value.olcrtcSha.take(12)}",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp
             )
@@ -291,6 +358,7 @@ private fun SharedConnectionSettingsContent(
     summary: String,
     details: List<Pair<String, String>>,
     socksProxySettings: ApplicationSocksProxySettings?,
+    routingModeTitle: String,
     onConnectionModeClick: () -> Unit,
     onSocksProxyClick: () -> Unit,
     onBack: () -> Unit
@@ -312,7 +380,7 @@ private fun SharedConnectionSettingsContent(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SharedNavigationRow(
                 title = "Connection Mode",
-                value = "Proxy · Local SOCKS5",
+                value = routingModeTitle,
                 icon = Icons.Rounded.Public,
                 onClick = onConnectionModeClick
             )
@@ -337,6 +405,9 @@ private fun SharedConnectionSettingsContent(
 
 @Composable
 private fun SharedConnectionModeSettingsContent(
+    options: List<ApplicationRoutingModeOption>,
+    selectedId: String,
+    onSelected: (String) -> Unit,
     onBack: () -> Unit
 ) {
     Column(
@@ -347,18 +418,24 @@ private fun SharedConnectionModeSettingsContent(
     ) {
         SharedDetailHeader(
             title = "Connection Mode",
-            subtitle = "Local SOCKS5 proxy",
+            subtitle = options.firstOrNull { it.id == selectedId }?.title
+                ?: "Local SOCKS5 proxy",
             onBack = onBack
         )
 
         Spacer(Modifier.height(20.dp))
 
-        SharedSelectableSettingsCard(
-            selected = true,
-            icon = Icons.Rounded.Public,
-            title = "Proxy",
-            subtitle = "Local SOCKS endpoint"
-        )
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            options.forEach { option ->
+                SharedSelectableSettingsCard(
+                    selected = option.id == selectedId,
+                    icon = Icons.Rounded.Public,
+                    title = option.title,
+                    subtitle = option.subtitle,
+                    onClick = { onSelected(option.id) }
+                )
+            }
+        }
     }
 }
 
@@ -636,8 +713,7 @@ private fun SharedSubscriptionsSettingsContent(
     subscriptions: List<SubscriptionShareItem>,
     onBack: () -> Unit,
     onCopyConfigClick: () -> Unit,
-    onShareClick: (String) -> Unit,
-    onRefreshClick: (String) -> Unit
+    onSubscriptionClick: (SubscriptionShareItem) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -647,7 +723,7 @@ private fun SharedSubscriptionsSettingsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SharedDetailHeader(
-            title = "Subscriptions & Sharing",
+            title = "Subscriptions",
             subtitle = subscriptions.size.subscriptionSummary(),
             onBack = onBack
         )
@@ -661,33 +737,208 @@ private fun SharedSubscriptionsSettingsContent(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            SharedSectionLabel("Current Config")
-
-            SharedNavigationRow(
-                title = "Copy Full Config",
-                value = "Backup all locations to clipboard",
-                icon = Icons.Outlined.ContentPaste,
-                showChevron = false,
-                onClick = onCopyConfigClick
-            )
-
-            SharedSectionLabel("Subscriptions")
-
             if (subscriptions.isEmpty()) {
                 SharedEmptyState(
                     title = "No subscriptions",
-                    subtitle = "Imported HTTPS subscriptions will appear here."
+                    subtitle = "Import a subscription from the home screen to manage it here."
                 )
             } else {
                 subscriptions.forEach { item ->
                     SharedSubscriptionRow(
                         item = item,
-                        onShareClick = { onShareClick(item.url) },
-                        onRefreshClick = { onRefreshClick(item.url) }
+                        onClick = { onSubscriptionClick(item) }
                     )
                 }
             }
+
+            Spacer(Modifier.height(6.dp))
+            SharedSectionLabel("Backup & export")
+            SharedNavigationRow(
+                title = "Export full configuration",
+                value = "Copy all locations to clipboard",
+                icon = Icons.Outlined.ContentPaste,
+                showChevron = false,
+                onClick = onCopyConfigClick
+            )
         }
+    }
+}
+
+@Composable
+private fun SharedSubscriptionDetailsContent(
+    item: SubscriptionShareItem,
+    isRefreshing: Boolean,
+    onBack: () -> Unit,
+    onShareClick: () -> Unit,
+    onRefreshClick: () -> Unit,
+    onRefreshIntervalChanged: (Long?) -> Unit,
+    onDeleteClick: () -> Unit
+) {
+    var showRefreshDialog by remember(item.url) { mutableStateOf(false) }
+    var refreshIntervalInput by remember(item.url) {
+        mutableStateOf(
+            item.manualUpdateIntervalMs
+                ?.let(::formatSubscriptionRefreshInterval)
+                .orEmpty()
+        )
+    }
+    var showDeleteDialog by remember(item.url) { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 680.dp)
+            .padding(horizontal = 24.dp)
+            .padding(top = 16.dp, bottom = 12.dp)
+    ) {
+        SharedDetailHeader(
+            title = "Subscription",
+            subtitle = item.name,
+            onBack = onBack
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 560.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SharedSectionLabel("Overview")
+            SharedSubscriptionStatusCard(item)
+
+            SharedSectionLabel("Source")
+            SharedSubscriptionSourceCard(
+                url = item.url,
+                onShareClick = onShareClick
+            )
+
+            SharedSectionLabel("Updates")
+            SharedSubscriptionUpdateCard(
+                item = item,
+                isRefreshing = isRefreshing,
+                onScheduleClick = {
+                    refreshIntervalInput = item.manualUpdateIntervalMs
+                        ?.let(::formatSubscriptionRefreshInterval)
+                        .orEmpty()
+                    showRefreshDialog = true
+                },
+                onRefreshClick = onRefreshClick
+            )
+
+            Spacer(Modifier.height(6.dp))
+            SharedDangerAction(
+                locationCount = item.locationCount,
+                onClick = { showDeleteDialog = true }
+            )
+            Spacer(Modifier.height(18.dp))
+        }
+    }
+
+    if (showRefreshDialog) {
+        val parsedInterval = refreshIntervalInput
+            .takeIf { it.isNotBlank() }
+            ?.let(::parseSubscriptionRefreshIntervalMs)
+        val hasError = refreshIntervalInput.isNotBlank() && parsedInterval == null
+
+        AlertDialog(
+            onDismissRequest = { showRefreshDialog = false },
+            title = { Text("Refresh schedule") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Choose how often this subscription should be checked.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(
+                            "Auto" to "",
+                            "1h" to "1h",
+                            "6h" to "6h",
+                            "1d" to "1d"
+                        ).forEach { (label, value) ->
+                            FilterChip(
+                                selected = refreshIntervalInput == value,
+                                onClick = { refreshIntervalInput = value },
+                                label = { Text(label) }
+                            )
+                        }
+                    }
+                    OutlinedTextField(
+                        value = refreshIntervalInput,
+                        onValueChange = { value ->
+                            refreshIntervalInput = value
+                                .lowercase()
+                                .filter { it.isDigit() || it in "smhd" }
+                                .take(8)
+                        },
+                        label = { Text("Custom interval") },
+                        placeholder = { Text("Auto") },
+                        supportingText = {
+                            Text(
+                                if (hasError) {
+                                    "Use 5m–30d, for example 10m, 6h, or 1d"
+                                } else if (refreshIntervalInput.isBlank()) {
+                                    item.sourceScheduleDescription()
+                                } else {
+                                    "A custom interval overrides the subscription value."
+                                }
+                            )
+                        },
+                        isError = hasError,
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !hasError,
+                    onClick = {
+                        onRefreshIntervalChanged(parsedInterval)
+                        showRefreshDialog = false
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRefreshDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete subscription?") },
+            text = {
+                Text(
+                    "This will delete “${item.name}” and " +
+                        "${item.locationCount.locationCountLabel()} imported from it. " +
+                        "This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        onDeleteClick()
+                    }
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -790,7 +1041,136 @@ private fun SharedUpdateOfferCard(
 @Composable
 private fun SharedSubscriptionRow(
     item: SubscriptionShareItem,
-    onShareClick: () -> Unit,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    text = item.name,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = item.locationCount.locationCountLabel(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    maxLines = 1
+                )
+                Text(
+                    text = item.listScheduleDescription(),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SharedSubscriptionStatusCard(item: SubscriptionShareItem) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SharedStatusMetric(
+                label = "Locations",
+                value = item.locationCount.toString(),
+                modifier = Modifier.weight(1f)
+            )
+            SharedStatusDivider()
+            SharedStatusMetric(
+                label = "Updated",
+                value = item.lastRefreshAtEpochMs?.relativeTime() ?: "Not yet",
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 14.dp)
+            )
+            SharedStatusDivider()
+            SharedStatusMetric(
+                label = "Next",
+                value = item.nextRefreshAtEpochMs?.relativeTime() ?: "On app start",
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 14.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SharedStatusMetric(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            text = value,
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun SharedStatusDivider() {
+    Surface(
+        modifier = Modifier
+            .width(1.dp)
+            .height(34.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
+    ) {}
+}
+
+@Composable
+private fun SharedSubscriptionUpdateCard(
+    item: SubscriptionShareItem,
+    isRefreshing: Boolean,
+    onScheduleClick: () -> Unit,
     onRefreshClick: () -> Unit
 ) {
     Surface(
@@ -799,40 +1179,190 @@ private fun SharedSubscriptionRow(
         color = MaterialTheme.colorScheme.surfaceContainer,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = item.name,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = item.url,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = item.subscriptionSummary(),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onShareClick) {
-                    Text("QR/share")
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(72.dp)
+                    .clickable(onClick = onScheduleClick)
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.padding(10.dp)
+                    )
                 }
-                TextButton(onClick = onRefreshClick) {
-                    Text("Refresh")
+                Spacer(Modifier.width(14.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.scheduleDescription(),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = item.scheduleTitle(),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.sp,
+                        maxLines = 1
+                    )
                 }
+                Icon(
+                    imageVector = Icons.Rounded.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+            ) {}
+
+            TextButton(
+                onClick = onRefreshClick,
+                enabled = !isRefreshing,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(17.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(if (isRefreshing) "Refreshing…" else "Refresh now")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SharedSubscriptionSourceCard(
+    url: String,
+    onShareClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 14.dp, top = 10.dp, bottom = 10.dp, end = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(38.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Public,
+                    contentDescription = null,
+                    modifier = Modifier.padding(9.dp)
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = url.subscriptionHost(),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "Subscription link",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 11.sp,
+                    maxLines = 1
+                )
+            }
+            IconButton(onClick = onShareClick) {
+                Icon(
+                    imageVector = Icons.Outlined.Share,
+                    contentDescription = "Share subscription"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SharedDangerAction(
+    locationCount: Int,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
+                contentColor = MaterialTheme.colorScheme.error
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.padding(10.dp)
+                )
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Delete subscription",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "Remove it and ${locationCount.locationCountLabel()}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp
+                )
+            }
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error
+            )
         }
     }
 }
@@ -937,12 +1467,14 @@ private fun SharedSelectableSettingsCard(
     selected: Boolean,
     icon: ImageVector,
     title: String,
-    subtitle: String
+    subtitle: String,
+    onClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(82.dp),
+            .height(82.dp)
+            .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
         color = if (selected) {
             MaterialTheme.colorScheme.secondaryContainer
@@ -1144,6 +1676,7 @@ private enum class SharedSettingsRoute {
     Connection,
     ConnectionMode,
     Subscriptions,
+    SubscriptionDetails,
     Updates,
     Logs,
     SocksProxy
@@ -1151,20 +1684,84 @@ private enum class SharedSettingsRoute {
 
 private fun Int.subscriptionSummary(): String {
     return when (this) {
-        0 -> "No HTTPS subscriptions"
-        1 -> "1 HTTPS subscription"
-        else -> "$this HTTPS subscriptions"
+        0 -> "No subscriptions"
+        1 -> "1 subscription"
+        else -> "$this subscriptions"
     }
 }
 
-private fun SubscriptionShareItem.subscriptionSummary(): String {
-    val interval = updateIntervalHours?.let { "every ${it}h" } ?: "default interval"
-    val count = when (locationCount) {
+private fun Int.locationCountLabel(): String {
+    return when (this) {
         1 -> "1 location"
-        else -> "$locationCount locations"
+        else -> "$this locations"
     }
-    val refresh = lastRefreshAtEpochMs?.let { "last refresh ${it.formatEpochMs()}" } ?: "not refreshed yet"
-    return "$interval · $count · $refresh"
+}
+
+private fun SubscriptionShareItem.scheduleTitle(): String {
+    return if (manualUpdateIntervalMs == null) "Automatic" else "Custom schedule"
+}
+
+private fun SubscriptionShareItem.scheduleDescription(): String {
+    val interval = updateIntervalMs
+        ?: updateIntervalHours?.times(60L * 60L * 1_000L)
+    return interval?.friendlySchedule() ?: "Uses the subscription schedule"
+}
+
+private fun SubscriptionShareItem.sourceScheduleDescription(): String {
+    val interval = sourceUpdateIntervalMs
+        ?: updateIntervalHours?.times(60L * 60L * 1_000L)
+    return interval?.let { "Auto uses ${it.friendlySchedule().lowercase()}." }
+        ?: "Auto uses the schedule supplied by the subscription."
+}
+
+private fun SubscriptionShareItem.listScheduleDescription(): String {
+    val schedule = if (manualUpdateIntervalMs == null) {
+        "Automatic"
+    } else {
+        updateIntervalMs?.friendlySchedule() ?: "Custom schedule"
+    }
+    val refreshed = lastRefreshAtEpochMs?.relativeTime()?.let { "Updated $it" } ?: "Not updated yet"
+    return "$schedule · $refreshed"
+}
+
+private fun String.subscriptionHost(): String {
+    return substringAfter("://", this)
+        .substringBefore('/')
+        .substringBefore('?')
+        .ifBlank { "Subscription source" }
+}
+
+private fun Long.friendlySchedule(): String {
+    val minuteMs = 60L * 1_000L
+    val hourMs = 60L * minuteMs
+    val dayMs = 24L * hourMs
+    return when {
+        this == dayMs -> "Every day"
+        this % dayMs == 0L -> "Every ${this / dayMs} days"
+        this == hourMs -> "Every hour"
+        this % hourMs == 0L -> "Every ${this / hourMs} hours"
+        this == minuteMs -> "Every minute"
+        else -> "Every ${(this / minuteMs).coerceAtLeast(1L)} minutes"
+    }
+}
+
+private fun Long.relativeTime(): String {
+    val deltaMs = this - Clock.System.now().toEpochMilliseconds()
+    val isFuture = deltaMs > 0L
+    val absoluteMs = if (deltaMs == Long.MIN_VALUE) Long.MAX_VALUE else {
+        if (deltaMs < 0L) -deltaMs else deltaMs
+    }
+    val minuteMs = 60L * 1_000L
+    val hourMs = 60L * minuteMs
+    val dayMs = 24L * hourMs
+    val value = when {
+        absoluteMs < minuteMs -> "just now"
+        absoluteMs < hourMs -> "${absoluteMs / minuteMs} min"
+        absoluteMs < dayMs -> "${absoluteMs / hourMs} hr"
+        absoluteMs < 7L * dayMs -> "${absoluteMs / dayMs} d"
+        else -> return formatEpochMs()
+    }
+    return if (value == "just now") value else if (isFuture) "in $value" else "$value ago"
 }
 
 private fun Long.formatEpochMs(): String {

@@ -22,6 +22,15 @@ val generatedAppInfoDir = layout.buildDirectory.dir("generated/source/olcboxAppI
 val olcrtcRepoPath = providers.environmentVariable("OLCRTC_REPO")
     .orElse(rootProject.layout.projectDirectory.asFile.parentFile.resolve("olcrtc").absolutePath)
 val olcrtcRepoDir = rootProject.file(olcrtcRepoPath.get())
+val detectedOlcrtcSha = providers.exec {
+    commandLine("git", "-C", olcrtcRepoDir.absolutePath, "rev-parse", "HEAD")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { output ->
+    output.trim().ifBlank { "unknown" }
+}
+val olcrtcCommitSha = providers.gradleProperty("olcbox.olcrtcSha")
+    .orElse(providers.environmentVariable("OLCBOX_OLCRTC_SHA"))
+    .orElse(detectedOlcrtcSha)
 val olcrtcAndroidAar = layout.buildDirectory.file("generated/olcrtc/olcrtc.aar")
 val olcrtcAndroidAarFile = olcrtcAndroidAar.get().asFile
 val olcrtcIosXcframework = layout.buildDirectory.dir("generated/olcrtc/ios/OlcRtcMobile.xcframework")
@@ -31,6 +40,9 @@ abstract class GenerateAppInfoTask : DefaultTask() {
     @get:Input
     abstract val version: Property<String>
 
+    @get:Input
+    abstract val olcrtcSha: Property<String>
+
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
 
@@ -39,6 +51,7 @@ abstract class GenerateAppInfoTask : DefaultTask() {
         val packageDir = outputDir.get().asFile.resolve("org/olcbox/app")
         packageDir.mkdirs()
         val escapedVersion = version.get().replace("\\", "\\\\").replace("\"", "\\\"")
+        val escapedOlcrtcSha = olcrtcSha.get().replace("\\", "\\\\").replace("\"", "\\\"")
         packageDir.resolve("GeneratedAppInfo.kt").writeText(
             """
             package org.olcbox.app
@@ -46,6 +59,7 @@ abstract class GenerateAppInfoTask : DefaultTask() {
             internal object GeneratedAppInfo {
                 const val NAME: String = "olcbox"
                 const val VERSION: String = "$escapedVersion"
+                const val OLCRTC_SHA: String = "$escapedOlcrtcSha"
             }
             """.trimIndent() + "\n"
         )
@@ -54,6 +68,7 @@ abstract class GenerateAppInfoTask : DefaultTask() {
 
 val generateAppInfo by tasks.registering(GenerateAppInfoTask::class) {
     version.set(olcboxVersionValue)
+    olcrtcSha.set(olcrtcCommitSha)
     outputDir.set(generatedAppInfoDir)
 }
 
@@ -129,6 +144,7 @@ kotlin {
             implementation(libs.ktor.client.logging)
             implementation(libs.androidx.lifecycle.viewmodel)
             implementation(libs.androidx.lifecycle.runtime)
+            implementation(libs.androidx.lifecycle.runtime.compose)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.multiplatformSettings)
             implementation(libs.kstore)

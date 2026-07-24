@@ -3,7 +3,9 @@ package org.olcbox.app.data.datasource
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.engine.mock.respondRedirect
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import org.olcbox.app.CurrentAppInfo
@@ -11,11 +13,18 @@ import org.olcbox.app.data.identity.DeviceIdentityProvider
 import org.olcbox.app.data.model.LocationBundleV4
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationEntry
+import org.olcbox.app.data.model.LocationMetadata
+import org.olcbox.app.data.model.SubscriptionMetadata
+import org.olcbox.app.data.model.formatSubscriptionRefreshInterval
+import org.olcbox.app.data.model.parseSubscriptionRefreshIntervalMs
+import org.olcbox.app.data.repository.LocationImportFailureKind
+import org.olcbox.app.data.repository.LocationImportResult
 import org.olcbox.app.data.share.ConfigShareService
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class LocationsRepositoryImplTest {
@@ -190,6 +199,56 @@ class LocationsRepositoryImplTest {
     }
 
     @Test
+    fun jitsiVp8ImportRemainsVp8AndIsMarkedExperimental() = runTest {
+        val source = FakeLocationsDataSource()
+        val config = LocationConfig(
+            name = "Jitsi VP8",
+            id = "https://meet.example.test/room",
+            key = "e".repeat(64),
+            bypassProvider = LocationConfig.PROVIDER_JITSI,
+            transport = LocationConfig.TRANSPORT_VP8CHANNEL,
+            vp8Fps = 30,
+            vp8Batch = 16
+        )
+
+        LocationsRepositoryImpl(source).importText(ConfigShareService.olcRtcUri(config))
+
+        val imported = assertNotNull(source.stored).locations.single().location
+        assertEquals(LocationConfig.TRANSPORT_VP8CHANNEL, imported.transport)
+        assertEquals(30, imported.vp8Fps)
+        assertEquals(16, imported.vp8Batch)
+        assertEquals("VP8 (Experimental)", imported.transportName())
+    }
+
+    @Test
+    fun jitsiConfigWithoutTransportKeepsDataChannelDefault() = runTest {
+        val source = FakeLocationsDataSource()
+        LocationsRepositoryImpl(source).importText(
+            """
+                {
+                  "version": 5,
+                  "locations": [
+                    {
+                      "storage_id": "jitsi",
+                      "name": "Jitsi",
+                      "endpoint": {
+                        "room_id": "https://meet.example.test/room",
+                        "key": "${"a".repeat(64)}"
+                      },
+                      "auth_provider": "jitsi"
+                    }
+                  ]
+                }
+            """.trimIndent()
+        )
+
+        assertEquals(
+            LocationConfig.TRANSPORT_DATACHANNEL,
+            source.stored?.locations?.single()?.location?.transport
+        )
+    }
+
+    @Test
     fun importsOlcRtcSubscriptionAndAppliesLocalNames() = runTest {
         val source = FakeLocationsDataSource()
         val input = """
@@ -214,7 +273,8 @@ class LocationsRepositoryImplTest {
             ##name: DE-Backup
         """.trimIndent()
 
-        LocationsRepositoryImpl(source).importText(input)
+        val importResult = LocationsRepositoryImpl(source).importTextDetailed(input)
+        assertIs<LocationImportResult.Success>(importResult, importResult.toString())
 
         val imported = source.stored
         assertNotNull(imported)
@@ -245,6 +305,7 @@ class LocationsRepositoryImplTest {
         assertEquals("flag-ru", subscriptionMetadata.icon)
         assertEquals("10mb/10gb", subscriptionMetadata.used)
         assertEquals("9.99gb", subscriptionMetadata.available)
+        assertEquals(10L * 60L * 1_000L, subscriptionMetadata.effectiveUpdateIntervalMs())
         assertEquals(subscriptionMetadata, imported.locations[1].metadata?.subscription)
     }
 
@@ -425,12 +486,26 @@ class LocationsRepositoryImplTest {
             LocationConfig.supportedTransportsForProvider(LocationConfig.PROVIDER_WB_STREAM)
         )
         assertEquals(
-            listOf(LocationConfig.TRANSPORT_DATACHANNEL),
+            listOf(
+                LocationConfig.TRANSPORT_DATACHANNEL,
+                LocationConfig.TRANSPORT_VP8CHANNEL
+            ),
             LocationConfig.supportedTransportsForProvider(LocationConfig.PROVIDER_JITSI)
         )
         assertEquals(
-            LocationConfig.TRANSPORT_DATACHANNEL,
+            LocationConfig.TRANSPORT_VP8CHANNEL,
             LocationConfig.normalizeTransport(LocationConfig.TRANSPORT_VP8CHANNEL, LocationConfig.PROVIDER_JITSI)
+        )
+        assertEquals(
+            LocationConfig.TRANSPORT_DATACHANNEL,
+            LocationConfig.normalizeTransport("", LocationConfig.PROVIDER_JITSI)
+        )
+        assertEquals(
+            "VP8 (Experimental)",
+            LocationConfig.transportDisplayName(
+                LocationConfig.TRANSPORT_VP8CHANNEL,
+                LocationConfig.PROVIDER_JITSI
+            )
         )
     }
 
@@ -526,8 +601,32 @@ class LocationsRepositoryImplTest {
         assertNotNull(imported)
         assertEquals(CurrentAppInfo.userAgent, userAgent)
         assertEquals("hwid-test", hwid)
-        assertEquals(6, imported.locations.single().metadata?.subscription?.updateIntervalHours)
+        assertEquals(
+            6L * SubscriptionMetadata.HOUR_MS,
+            imported.locations.single().metadata?.subscription?.effectiveUpdateIntervalMs()
+        )
         assertEquals("https://example.test/sub.txt", imported.locations.single().subscriptionUrl)
+    }
+
+    @Test
+    fun subscriptionImportFollowsHttpRedirect() = runTest {
+        var requests = 0
+        val engine = MockEngine { request ->
+            requests += 1
+            if (request.url.encodedPath == "/start") {
+                respondRedirect("https://example.test/final")
+            } else {
+                respond("olcrtc://wbstream?vp8channel@room#${"a".repeat(64)}${'$'}Redirected")
+            }
+        }
+        val source = FakeLocationsDataSource()
+
+        val result = LocationsRepositoryImpl(source, HttpClient(engine))
+            .importTextDetailed("https://example.test/start")
+
+        assertIs<LocationImportResult.Success>(result)
+        assertEquals(2, requests)
+        assertEquals("room", source.stored?.locations?.single()?.location?.id)
     }
 
     @Test
@@ -563,7 +662,10 @@ class LocationsRepositoryImplTest {
         assertTrue(userAgents[1]?.startsWith("Mozilla/5.0") == true)
         assertNull(hwids[1])
         assertEquals("room", bundle.locations.single().location.id)
-        assertEquals(12, bundle.locations.single().metadata?.subscription?.updateIntervalHours)
+        assertEquals(
+            12L * SubscriptionMetadata.HOUR_MS,
+            bundle.locations.single().metadata?.subscription?.effectiveUpdateIntervalMs()
+        )
         assertEquals("http://example.test/sub.txt", bundle.locations.single().subscriptionUrl)
     }
 
@@ -607,6 +709,36 @@ class LocationsRepositoryImplTest {
     }
 
     @Test
+    fun subscriptionRefreshPreservesLocalDnsOverride() = runTest {
+        val url = "https://example.test/sub"
+        val source = FakeLocationsDataSource(
+            stored = LocationBundleV4(
+                activeLocationId = "sub",
+                locations = listOf(
+                    LocationEntry.from(
+                        "sub",
+                        LocationConfig(
+                            "Sub",
+                            "room",
+                            "a".repeat(64),
+                            dnsServer = "9.9.9.9:53"
+                        ),
+                        subscriptionUrl = url
+                    )
+                )
+            )
+        )
+        val engine = MockEngine {
+            respond("olcrtc://wbstream?vp8channel@room#${"a".repeat(64)}${'$'}Sub")
+        }
+
+        LocationsRepositoryImpl(source, HttpClient(engine)).refreshSubscription(url)
+
+        assertEquals("sub", source.stored?.locations?.single()?.storageId)
+        assertEquals("9.9.9.9:53", source.stored?.locations?.single()?.location?.dnsServer)
+    }
+
+    @Test
     fun failedSingleSubscriptionRefreshDoesNotDropExistingSubscription() = runTest {
         val source = FakeLocationsDataSource(
             stored = LocationBundleV4(
@@ -636,6 +768,301 @@ class LocationsRepositoryImplTest {
         assertEquals(listOf("alpha"), bundle.locations.map { it.storageId })
         assertEquals("room-alpha", bundle.locations.single().location.id)
         assertEquals("alpha", bundle.activeLocationId)
+        assertEquals(1, bundle.locations.single().metadata?.subscription?.consecutiveRefreshFailures)
+    }
+
+    @Test
+    fun subscriptionHeaderTakesPrecedenceOverRefreshDirective() = runTest {
+        val engine = MockEngine {
+            respond(
+                content = """
+                    #refresh: 10m
+                    olcrtc://wbstream?vp8channel@room#${"c".repeat(64)}${'$'}Sub
+                """.trimIndent(),
+                headers = headersOf("profile-update-interval", "6")
+            )
+        }
+        val source = FakeLocationsDataSource()
+
+        LocationsRepositoryImpl(source, HttpClient(engine)).importText("https://example.test/sub")
+
+        assertEquals(
+            6L * SubscriptionMetadata.HOUR_MS,
+            source.stored?.locations?.single()?.metadata?.subscription?.effectiveUpdateIntervalMs()
+        )
+    }
+
+    @Test
+    fun detailedImportReportsHttpAndUnsupportedInput() = runTest {
+        val engine = MockEngine {
+            respond("failure", status = HttpStatusCode.BadGateway)
+        }
+        val repository = LocationsRepositoryImpl(FakeLocationsDataSource(), HttpClient(engine))
+
+        val httpFailure = assertIs<LocationImportResult.Failure>(
+            repository.importTextDetailed("https://example.test/sub")
+        )
+        assertEquals(LocationImportFailureKind.Http, httpFailure.kind)
+        assertTrue("502" in httpFailure.message)
+
+        val formatFailure = assertIs<LocationImportResult.Failure>(
+            repository.importTextDetailed("this is not a configuration")
+        )
+        assertEquals(LocationImportFailureKind.UnsupportedFormat, formatFailure.kind)
+
+        val schemeFailure = assertIs<LocationImportResult.Failure>(
+            repository.importTextDetailed("ftp://example.test/sub")
+        )
+        assertEquals(LocationImportFailureKind.InvalidUrl, schemeFailure.kind)
+
+        val invalidUrlFailure = assertIs<LocationImportResult.Failure>(
+            repository.importTextDetailed("https://")
+        )
+        assertEquals(LocationImportFailureKind.InvalidUrl, invalidUrlFailure.kind)
+    }
+
+    @Test
+    fun detailedImportReportsTlsTimeoutAndEmptyResponse() = runTest {
+        suspend fun failureFrom(engine: MockEngine): LocationImportResult.Failure {
+            val repository = LocationsRepositoryImpl(
+                FakeLocationsDataSource(),
+                HttpClient(engine)
+            )
+            return assertIs<LocationImportResult.Failure>(
+                repository.importTextDetailed("https://example.test/sub")
+            )
+        }
+
+        assertEquals(
+            LocationImportFailureKind.Tls,
+            failureFrom(MockEngine { error("SSL certificate validation failed") }).kind
+        )
+        assertEquals(
+            LocationImportFailureKind.Timeout,
+            failureFrom(MockEngine { error("request timed out") }).kind
+        )
+        assertEquals(
+            LocationImportFailureKind.EmptyResponse,
+            failureFrom(MockEngine { respond("") }).kind
+        )
+    }
+
+    @Test
+    fun subscriptionRetryBackoffAndManualIntervalAreApplied() {
+        val failed = SubscriptionMetadata(
+            updateIntervalMs = 10L * 60L * 1_000L,
+            manualUpdateIntervalMs = 2L * SubscriptionMetadata.HOUR_MS,
+            lastRefreshAttemptAtEpochMs = 1_000L,
+            consecutiveRefreshFailures = 2
+        )
+
+        assertEquals(2L * SubscriptionMetadata.HOUR_MS, failed.effectiveUpdateIntervalMs())
+        assertEquals(
+            1_000L + SubscriptionMetadata.retryDelayMs(2),
+            failed.nextRefreshAtEpochMs()
+        )
+    }
+
+    @Test
+    fun subscriptionManualOverrideCanBeSetAndCleared() = runTest {
+        val url = "https://example.test/sub"
+        val source = FakeLocationsDataSource(
+            stored = LocationBundleV4(
+                activeLocationId = "sub",
+                locations = listOf(
+                    LocationEntry.from(
+                        storageId = "sub",
+                        location = LocationConfig("Sub", "room", "f".repeat(64)),
+                        subscriptionUrl = url,
+                        metadata = LocationMetadata(
+                            subscription = SubscriptionMetadata(updateIntervalMs = 10L * 60L * 1_000L)
+                        )
+                    )
+                )
+            )
+        )
+        val repository = LocationsRepositoryImpl(source)
+
+        repository.setSubscriptionUpdateInterval(url, 2L * SubscriptionMetadata.HOUR_MS)
+        var subscription = source.stored?.locations?.single()?.metadata?.subscription
+        assertEquals(2L * SubscriptionMetadata.HOUR_MS, subscription?.effectiveUpdateIntervalMs())
+
+        repository.setSubscriptionUpdateInterval(url, null)
+        subscription = source.stored?.locations?.single()?.metadata?.subscription
+        assertNull(subscription?.manualUpdateIntervalMs)
+        assertEquals(10L * 60L * 1_000L, subscription?.effectiveUpdateIntervalMs())
+    }
+
+    @Test
+    fun reimportingSameSubscriptionUpdatesGroupWithoutDuplicates() = runTest {
+        val url = "https://example.test/sub"
+        var requestCount = 0
+        val engine = MockEngine {
+            requestCount += 1
+            val body = if (requestCount == 1) {
+                """
+                    #refresh: 10m
+                    olcrtc://wbstream?vp8channel@room-a#${"a".repeat(64)}${'$'}Alpha
+                    olcrtc://wbstream?vp8channel@room-b#${"b".repeat(64)}${'$'}Beta
+                """.trimIndent()
+            } else {
+                """
+                    #refresh: 20m
+                    olcrtc://wbstream?vp8channel@room-a#${"a".repeat(64)}${'$'}Alpha updated
+                    olcrtc://wbstream?vp8channel@room-c#${"c".repeat(64)}${'$'}Gamma
+                """.trimIndent()
+            }
+            respond(body)
+        }
+        val source = FakeLocationsDataSource(
+            stored = LocationBundleV4(
+                activeLocationId = "custom",
+                locations = listOf(
+                    LocationEntry.from(
+                        "custom",
+                        LocationConfig("Custom", "custom-room", "d".repeat(64))
+                    )
+                )
+            )
+        )
+        val repository = LocationsRepositoryImpl(source, HttpClient(engine))
+
+        repository.importTextDetailed(url)
+        repository.setSubscriptionUpdateInterval(url, 2L * SubscriptionMetadata.HOUR_MS)
+        val alphaStorageId = source.stored
+            ?.locations
+            ?.first { it.location.id == "room-a" }
+            ?.storageId
+
+        repository.importTextDetailed(url)
+
+        val bundle = assertNotNull(source.stored)
+        assertEquals(3, bundle.locations.size)
+        assertEquals(2, bundle.locations.count { it.subscriptionUrl == url })
+        assertEquals(listOf("custom-room", "room-a", "room-c"), bundle.locations.map { it.location.id })
+        assertEquals(
+            alphaStorageId,
+            bundle.locations.first { it.location.id == "room-a" }.storageId
+        )
+        assertEquals(
+            2L * SubscriptionMetadata.HOUR_MS,
+            bundle.locations.first { it.location.id == "room-a" }
+                .metadata?.subscription?.manualUpdateIntervalMs
+        )
+        assertEquals(
+            "room-a",
+            bundle.locations.first { it.storageId == bundle.activeLocationId }.location.id
+        )
+    }
+
+    @Test
+    fun unsupportedMobileTransportFallsBackToProviderSafeDefault() {
+        val mobileTransports = listOf(
+            LocationConfig.TRANSPORT_DATACHANNEL,
+            LocationConfig.TRANSPORT_VP8CHANNEL
+        )
+
+        assertEquals(
+            LocationConfig.TRANSPORT_VP8CHANNEL,
+            LocationConfig.fallbackTransportForProvider(
+                LocationConfig.PROVIDER_WB_STREAM,
+                mobileTransports
+            )
+        )
+        assertEquals(
+            LocationConfig.TRANSPORT_VP8CHANNEL,
+            LocationConfig.fallbackTransportForProvider(
+                LocationConfig.PROVIDER_TELEMOST,
+                mobileTransports
+            )
+        )
+        assertEquals(
+            LocationConfig.TRANSPORT_DATACHANNEL,
+            LocationConfig.fallbackTransportForProvider(
+                LocationConfig.PROVIDER_JITSI,
+                mobileTransports
+            )
+        )
+    }
+
+    @Test
+    fun subscriptionRefreshInputUsesSupportedRange() {
+        assertEquals(10L * 60L * 1_000L, parseSubscriptionRefreshIntervalMs("10m"))
+        assertEquals(6L * SubscriptionMetadata.HOUR_MS, parseSubscriptionRefreshIntervalMs("6h"))
+        assertEquals("1d", formatSubscriptionRefreshInterval(24L * SubscriptionMetadata.HOUR_MS))
+        assertNull(parseSubscriptionRefreshIntervalMs("4m"))
+        assertNull(parseSubscriptionRefreshIntervalMs("31d"))
+    }
+
+    @Test
+    fun deletingSubscriptionRemovesAllItsLocationsAndReselectsActiveLocation() = runTest {
+        val deletedUrl = "https://example.test/deleted"
+        val remainingUrl = "https://example.test/remaining"
+        val source = FakeLocationsDataSource(
+            stored = LocationBundleV4(
+                activeLocationId = "deleted-2",
+                locations = listOf(
+                    LocationEntry.from(
+                        "deleted-1",
+                        LocationConfig("Deleted 1", "room-1", "a".repeat(64)),
+                        subscriptionUrl = deletedUrl
+                    ),
+                    LocationEntry.from(
+                        "deleted-2",
+                        LocationConfig("Deleted 2", "room-2", "b".repeat(64)),
+                        subscriptionUrl = deletedUrl
+                    ),
+                    LocationEntry.from(
+                        "remaining",
+                        LocationConfig("Remaining", "room-3", "c".repeat(64)),
+                        subscriptionUrl = remainingUrl
+                    ),
+                    LocationEntry.from(
+                        "custom",
+                        LocationConfig("Custom", "room-4", "d".repeat(64))
+                    )
+                )
+            )
+        )
+
+        val removed = LocationsRepositoryImpl(source).deleteSubscription(deletedUrl)
+
+        assertEquals(2, removed)
+        assertEquals(listOf("remaining", "custom"), source.stored?.locations?.map { it.storageId })
+        assertEquals("remaining", source.stored?.activeLocationId)
+    }
+
+    @Test
+    fun customDnsIsValidatedAndImportedFromLegacyJson() = runTest {
+        assertTrue(LocationConfig.isValidDnsServer(""))
+        assertTrue(LocationConfig.isValidDnsServer("1.1.1.1:53"))
+        assertTrue(LocationConfig.isValidDnsServer("dns.example.test:5353"))
+        assertTrue(LocationConfig.isValidDnsServer("[2001:4860:4860::8888]:53"))
+        assertTrue(!LocationConfig.isValidDnsServer("2001:4860:4860::8888:53"))
+        assertTrue(!LocationConfig.isValidDnsServer("https://dns.example.test:53"))
+
+        val source = FakeLocationsDataSource()
+        val repository = LocationsRepositoryImpl(source)
+        repository.importText(
+            """
+                {
+                  "name": "DNS",
+                  "server": "room",
+                  "password": "${"d".repeat(64)}",
+                  "provider": "wbstream",
+                  "dns": "9.9.9.9:53"
+                }
+            """.trimIndent()
+        )
+
+        assertEquals("9.9.9.9:53", source.stored?.locations?.single()?.location?.dnsServer)
+
+        val restoredSource = FakeLocationsDataSource()
+        LocationsRepositoryImpl(restoredSource).importText(repository.exportBundle())
+        assertEquals(
+            "9.9.9.9:53",
+            restoredSource.stored?.locations?.single()?.location?.dnsServer
+        )
     }
 
     @Test

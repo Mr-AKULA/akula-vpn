@@ -85,6 +85,7 @@ import org.olcbox.app.data.share.ConfigShareService
 import org.olcbox.app.data.share.SubscriptionShareItem
 import org.olcbox.app.ui.OlcboxAppContent
 import org.olcbox.app.ui.components.ApplicationSocksProxySettings
+import org.olcbox.app.ui.components.ApplicationRoutingModeOption
 import org.olcbox.app.ui.components.ApplicationSettingsSheet
 import org.olcbox.app.ui.components.ApplicationUpdateOfferSheet
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
@@ -102,6 +103,7 @@ import org.olcbox.app.update.isDownloaded
 import org.olcbox.app.update.isUpdateCheckDue
 import org.olcbox.app.update.shouldShowOffer
 import org.olcbox.app.vpn.DesktopSocksProxySettings
+import org.olcbox.app.vpn.DesktopRoutingMode
 import org.olcbox.app.vpn.DesktopVpnManager
 import org.olcbox.app.vpn.JvmDesktopSocksProxySettingsStore
 
@@ -319,9 +321,12 @@ fun main(args: Array<String>) = application {
                     },
                     onImportFileRequested = {
                         chooseConfigFile(window)?.let { file ->
-                            dependencies.homeViewModel.onFileSelected(file) {
-                                reloadLocationsAfterImport()
-                            }
+                            dependencies.homeViewModel.onFileSelected(
+                                fileSource = file,
+                                onComplete = {
+                                    reloadLocationsAfterImport()
+                                }
+                            )
                         }
                     },
                     onImportFromClipboardRequested = { onImported, onError ->
@@ -366,12 +371,24 @@ fun main(args: Array<String>) = application {
                         updateOffer = updateOffer,
                         subscriptions = desktopSubscriptionItems(dependencies.locationViewModel.locations.toList()),
                         logs = logs,
-                        connectionSummary = "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}",
-                        connectionDetails = listOf(
-                            "PAC URL" to "http://127.0.0.1:10809/proxy.pac",
-                            "PAC Target" to "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}"
-                        ),
+                        connectionSummary = "${socksProxySettings.routingMode.effectiveDisplayName()} · " +
+                            "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}",
+                        connectionDetails = buildList {
+                            add("Mode" to socksProxySettings.routingMode.effectiveDisplayName())
+                            if (socksProxySettings.routingMode.effectiveMode() == DesktopRoutingMode.SystemProxy) {
+                                add("PAC URL" to "http://127.0.0.1:10809/proxy.pac")
+                                add("PAC Target" to "SOCKS5 ${socksProxySettings.host}:${socksProxySettings.port}")
+                            }
+                        },
                         socksProxySettings = socksProxySettings.toApplicationSocksProxySettings(),
+                        routingModeOptions = DesktopRoutingMode.availableForCurrentPlatform().map { mode ->
+                            ApplicationRoutingModeOption(
+                                id = mode.name,
+                                title = mode.displayName(),
+                                subtitle = mode.description()
+                            )
+                        },
+                        selectedRoutingModeId = socksProxySettings.routingMode.name,
                         isConnectionActive = homeState.isVpnConnected,
                         onDismiss = { showDesktopSettings = false },
                         onCopyConfigClick = {
@@ -419,6 +436,25 @@ fun main(args: Array<String>) = application {
                                 }
                             }
                         },
+                        onSubscriptionRefreshIntervalChanged = { url, intervalMs ->
+                            dependencies.homeViewModel.setSubscriptionRefreshInterval(url, intervalMs) {
+                                dependencies.locationViewModel.loadLocations()
+                                updateMessage = if (intervalMs == null) {
+                                    "Subscription refresh set to Auto"
+                                } else {
+                                    "Subscription refresh rate saved"
+                                }
+                            }
+                        },
+                        onSubscriptionDeleteClick = { url ->
+                            dependencies.homeViewModel.deleteSubscription(url) { removedLocations ->
+                                reloadLocationsAfterImport {
+                                    dependencies.homeViewModel.restartVpnIfRunning()
+                                    updateMessage =
+                                        "Subscription deleted · $removedLocations locations removed"
+                                }
+                            }
+                        },
                         onSocksProxySettingsSaved = { username, password, port ->
                             val settings = socksProxySettings.copy(
                                 port = port,
@@ -445,6 +481,21 @@ fun main(args: Array<String>) = application {
                             desktopNotice = "Password regenerated"
                             if (homeState.isVpnConnected) {
                                 dependencies.homeViewModel.restartVpnIfRunning()
+                            }
+                        },
+                        onRoutingModeSelected = { id ->
+                            val mode = runCatching { DesktopRoutingMode.valueOf(id) }
+                                .getOrDefault(DesktopRoutingMode.Auto)
+                            if (mode != socksProxySettings.routingMode) {
+                                val settings = socksProxySettings.copy(routingMode = mode).normalized()
+                                dependencies.vpnManager.updateSocksProxySettings(settings)
+                                scope.launch {
+                                    dependencies.socksProxySettingsStore.save(settings)
+                                }
+                                desktopNotice = "Connection mode saved"
+                                if (homeState.isVpnConnected) {
+                                    dependencies.homeViewModel.restartVpnIfRunning()
+                                }
                             }
                         }
                     )
@@ -691,8 +742,12 @@ private fun desktopSubscriptionItems(items: List<LocationItem>): List<Subscripti
                 url = url,
                 name = metadata?.name?.takeIf { it.isNotBlank() }
                     ?: subscriptionItems.first().fullName,
+                updateIntervalMs = metadata?.effectiveUpdateIntervalMs(),
+                sourceUpdateIntervalMs = metadata?.updateIntervalMs,
+                manualUpdateIntervalMs = metadata?.manualUpdateIntervalMs,
                 updateIntervalHours = metadata?.updateIntervalHours,
                 lastRefreshAtEpochMs = metadata?.lastRefreshAtEpochMs,
+                nextRefreshAtEpochMs = metadata?.nextRefreshAtEpochMs(),
                 locationCount = subscriptionItems.size
             )
         }

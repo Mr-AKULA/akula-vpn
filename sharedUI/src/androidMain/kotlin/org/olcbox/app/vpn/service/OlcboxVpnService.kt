@@ -659,7 +659,7 @@ class OlcboxVpnService : VpnService() {
         val config = location.normalized()
         Mobile.setProviders()
         Mobile.setTransport(config.transport)
-        Mobile.setDNS("1.1.1.1:53")
+        Mobile.setDNS(config.dnsServer.ifBlank { DEFAULT_OLCRTC_DNS_SERVER })
         Mobile.setSocksListenHost(socksListenHost)
         Mobile.setVP8Options(config.vp8Fps.toLong(), config.vp8Batch.toLong())
     }
@@ -821,8 +821,8 @@ class OlcboxVpnService : VpnService() {
               cache-size: 10000
 
             misc:
-              task-stack-size: 24576
-              tcp-buffer-size: 4096
+              task-stack-size: $TUN_TASK_STACK_SIZE
+              tcp-buffer-size: $TUN_TCP_BUFFER_SIZE
               max-session-count: 1200
               connect-timeout: 10000
               tcp-read-write-timeout: 300000
@@ -1681,7 +1681,10 @@ class OlcboxVpnService : VpnService() {
         private const val WAKE_LOCK_TIMEOUT_MS = 2 * 60 * 1000L
         private const val TUN_MTU = 1500
         private const val TUN_IPV4_ADDRESS = "10.0.88.88"
+        private const val TUN_TCP_BUFFER_SIZE = 65_536
+        private const val TUN_TASK_STACK_SIZE = 86_016
         private const val IPV4_PREFIX_LENGTH = 24
+        private const val DEFAULT_OLCRTC_DNS_SERVER = "1.1.1.1:53"
         private const val MAPDNS_ADDRESS = "1.1.1.1"
         private const val MAPDNS_NETWORK = "100.64.0.0"
         private const val MAPDNS_NETMASK = "255.192.0.0"
