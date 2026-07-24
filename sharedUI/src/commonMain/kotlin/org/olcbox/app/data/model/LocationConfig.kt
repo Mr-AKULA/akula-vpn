@@ -332,6 +332,8 @@ data class SubscriptionMetadata(
     val updateIntervalMs: Long? = null,
     @SerialName("manual_update_interval_ms")
     val manualUpdateIntervalMs: Long? = null,
+    @SerialName("allow_insecure_requests")
+    val allowInsecureRequests: Boolean = false,
     @SerialName("update_interval_hours")
     val updateIntervalHours: Int? = null,
     @SerialName("last_refresh_attempt_at_epoch_ms")
@@ -396,6 +398,7 @@ data class SubscriptionMetadata(
                 available.isNullOrBlank() &&
                 updateIntervalMs == null &&
                 manualUpdateIntervalMs == null &&
+                !allowInsecureRequests &&
                 updateIntervalHours == null &&
                 lastRefreshAttemptAtEpochMs == null &&
                 lastRefreshAtEpochMs == null &&

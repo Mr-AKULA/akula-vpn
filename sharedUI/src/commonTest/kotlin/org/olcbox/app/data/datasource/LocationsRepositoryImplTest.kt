@@ -651,7 +651,7 @@ class LocationsRepositoryImplTest {
             dataSource = source,
             httpClient = HttpClient(engine),
             deviceIdentityProvider = StaticIdentityProvider("hwid-test")
-        ).importText("http://example.test/sub.txt")
+        ).importText("https://example.test/sub.txt")
 
         val bundle = source.stored
         assertTrue(imported)
@@ -666,7 +666,46 @@ class LocationsRepositoryImplTest {
             12L * SubscriptionMetadata.HOUR_MS,
             bundle.locations.single().metadata?.subscription?.effectiveUpdateIntervalMs()
         )
-        assertEquals("http://example.test/sub.txt", bundle.locations.single().subscriptionUrl)
+        assertEquals("https://example.test/sub.txt", bundle.locations.single().subscriptionUrl)
+    }
+
+    @Test
+    fun insecureSubscriptionSettingIsPersistedAndUsedForRefresh() = runTest {
+        val url = "http://example.test/sub.txt"
+        val insecureClientRequests = mutableListOf<Boolean>()
+        val source = FakeLocationsDataSource()
+        val repository = LocationsRepositoryImpl(
+            dataSource = source,
+            subscriptionHttpClientFactory = { _, allowInsecureRequests ->
+                insecureClientRequests += allowInsecureRequests
+                HttpClient(
+                    MockEngine {
+                        respond("olcrtc://wbstream?vp8channel@room#${"e".repeat(64)}${'$'}Insecure")
+                    }
+                )
+            }
+        )
+
+        val blocked = repository.importTextDetailed(url)
+        assertIs<LocationImportResult.Failure>(blocked)
+        assertEquals(LocationImportFailureKind.InvalidUrl, blocked.kind)
+
+        val imported = repository.importTextDetailed(
+            text = url,
+            allowInsecureRequests = true
+        )
+        assertIs<LocationImportResult.Success>(imported)
+        assertTrue(
+            source.stored?.locations?.single()
+                ?.metadata?.subscription?.allowInsecureRequests == true
+        )
+
+        assertEquals(1, repository.refreshSubscription(url))
+        assertEquals(listOf(true, true), insecureClientRequests)
+        assertTrue(
+            source.stored?.locations?.single()
+                ?.metadata?.subscription?.allowInsecureRequests == true
+        )
     }
 
     @Test

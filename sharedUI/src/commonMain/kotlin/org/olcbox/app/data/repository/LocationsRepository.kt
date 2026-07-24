@@ -12,10 +12,19 @@ interface LocationsRepository {
     suspend fun exportBundle(): String
     suspend fun importTextDetailed(
         text: String,
-        subscriptionProxy: SubscriptionFetchProxy? = null
+        subscriptionProxy: SubscriptionFetchProxy? = null,
+        allowInsecureRequests: Boolean = false
     ): LocationImportResult
-    suspend fun importText(text: String, subscriptionProxy: SubscriptionFetchProxy? = null): Boolean {
-        return importTextDetailed(text, subscriptionProxy) is LocationImportResult.Success
+    suspend fun importText(
+        text: String,
+        subscriptionProxy: SubscriptionFetchProxy? = null,
+        allowInsecureRequests: Boolean = false
+    ): Boolean {
+        return importTextDetailed(
+            text = text,
+            subscriptionProxy = subscriptionProxy,
+            allowInsecureRequests = allowInsecureRequests
+        ) is LocationImportResult.Success
     }
     suspend fun refreshSubscriptions(subscriptionProxy: SubscriptionFetchProxy? = null): Int
     suspend fun refreshSubscription(

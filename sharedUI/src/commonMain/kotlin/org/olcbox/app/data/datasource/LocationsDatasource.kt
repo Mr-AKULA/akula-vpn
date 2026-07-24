@@ -49,7 +49,8 @@ internal expect fun createProxyHttpClient(
     subscriptionProxy: SubscriptionFetchProxy? = null,
     connectTimeoutMs: Long = 3_000,
     requestTimeoutMs: Long = 8_000,
-    socketTimeoutMs: Long = 8_000
+    socketTimeoutMs: Long = 8_000,
+    allowInsecureRequests: Boolean = false
 ): HttpClient
 
 internal expect suspend fun <T> withProxyAuthentication(
@@ -61,13 +62,21 @@ class LocationsRepositoryImpl(
     private val dataSource: LocationsDataSource,
     private val httpClient: HttpClient = createProxyHttpClient(),
     private val deviceIdentityProvider: DeviceIdentityProvider = PersistentDeviceIdentityProvider(dataSource),
-    private val nowEpochMs: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() }
+    private val nowEpochMs: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
+    private val subscriptionHttpClientFactory: (SubscriptionFetchProxy?, Boolean) -> HttpClient =
+        { proxy, allowInsecureRequests ->
+            createProxyHttpClient(
+                subscriptionProxy = proxy,
+                allowInsecureRequests = allowInsecureRequests
+            )
+        }
 ) : LocationsRepository {
     private data class ImportSource(
         val content: String,
         val subscriptionUrl: String? = null,
         val updateIntervalMs: Long? = null,
-        val requestMode: SubscriptionRequestMode = SubscriptionRequestMode.Identity
+        val requestMode: SubscriptionRequestMode = SubscriptionRequestMode.Identity,
+        val allowInsecureRequests: Boolean = false
     )
 
     private data class DownloadedSubscription(
@@ -173,12 +182,14 @@ class LocationsRepositoryImpl(
 
     override suspend fun importTextDetailed(
         text: String,
-        subscriptionProxy: SubscriptionFetchProxy?
+        subscriptionProxy: SubscriptionFetchProxy?,
+        allowInsecureRequests: Boolean
     ): LocationImportResult {
         val resolved = when (
             val result = resolveParsedImportDetailed(
                 text = text,
-                subscriptionProxy = subscriptionProxy
+                subscriptionProxy = subscriptionProxy,
+                allowInsecureRequests = allowInsecureRequests
             )
         ) {
             is ResolvedImportResult.Success -> result.value
@@ -302,10 +313,15 @@ class LocationsRepositoryImpl(
             attemptedRefreshes += 1
             val refreshTimestamp = nowEpochMs()
             val previousInterval = previousEntries.subscriptionUpdateIntervalMs()
+            val allowInsecureRequests = previousEntries.any {
+                it.metadata?.subscription?.allowInsecureRequests == true
+            } ||
+                url.startsWith("http://", ignoreCase = true)
             val resolved = resolveParsedImport(
                 text = url,
                 fallbackSubscriptionInterval = previousInterval,
-                subscriptionProxy = subscriptionProxy
+                subscriptionProxy = subscriptionProxy,
+                allowInsecureRequests = allowInsecureRequests
             ) ?: run {
                 preservePreviousEntries(previousEntries, refreshTimestamp)
                 return@forEach
@@ -540,13 +556,15 @@ class LocationsRepositoryImpl(
     private suspend fun resolveParsedImport(
         text: String,
         fallbackSubscriptionInterval: Long? = null,
-        subscriptionProxy: SubscriptionFetchProxy? = null
+        subscriptionProxy: SubscriptionFetchProxy? = null,
+        allowInsecureRequests: Boolean = false
     ): ResolvedImport? {
         return when (
             val result = resolveParsedImportDetailed(
                 text = text,
                 fallbackSubscriptionInterval = fallbackSubscriptionInterval,
-                subscriptionProxy = subscriptionProxy
+                subscriptionProxy = subscriptionProxy,
+                allowInsecureRequests = allowInsecureRequests
             )
         ) {
             is ResolvedImportResult.Success -> result.value
@@ -557,7 +575,8 @@ class LocationsRepositoryImpl(
     private suspend fun resolveParsedImportDetailed(
         text: String,
         fallbackSubscriptionInterval: Long? = null,
-        subscriptionProxy: SubscriptionFetchProxy? = null
+        subscriptionProxy: SubscriptionFetchProxy? = null,
+        allowInsecureRequests: Boolean = false
     ): ResolvedImportResult {
         val input = text.normalizedImportText()
         if (input.isBlank()) {
@@ -578,10 +597,17 @@ class LocationsRepositoryImpl(
                 "Enter a valid HTTP or HTTPS subscription URL"
             )
         }
+        if (input.startsWith("http://", ignoreCase = true) && !allowInsecureRequests) {
+            return ResolvedImportResult.Failure(
+                LocationImportFailureKind.InvalidUrl,
+                "Enable Allow insecure requests to import an HTTP subscription"
+            )
+        }
         var sourceResult = resolveImportSourceDetailed(
             text = input,
             requestMode = SubscriptionRequestMode.Identity,
-            subscriptionProxy = subscriptionProxy
+            subscriptionProxy = subscriptionProxy,
+            allowInsecureRequests = allowInsecureRequests
         )
         var source = (sourceResult as? ImportSourceResult.Success)?.value
         var lastFailure = sourceResult as? ImportSourceResult.Failure
@@ -590,7 +616,8 @@ class LocationsRepositoryImpl(
             sourceResult = resolveImportSourceDetailed(
                 text = input,
                 requestMode = SubscriptionRequestMode.Compatibility,
-                subscriptionProxy = subscriptionProxy
+                subscriptionProxy = subscriptionProxy,
+                allowInsecureRequests = allowInsecureRequests
             )
             source = (sourceResult as? ImportSourceResult.Success)?.value
             lastFailure = sourceResult as? ImportSourceResult.Failure ?: lastFailure
@@ -610,7 +637,8 @@ class LocationsRepositoryImpl(
                 val fallbackSource = resolveImportSourceDetailed(
                     text = input,
                     requestMode = SubscriptionRequestMode.Compatibility,
-                    subscriptionProxy = subscriptionProxy
+                    subscriptionProxy = subscriptionProxy,
+                    allowInsecureRequests = allowInsecureRequests
                 )
             ) {
                 is ImportSourceResult.Success -> {
@@ -658,7 +686,9 @@ class LocationsRepositoryImpl(
             bundle = parsed.bundle.copy(
                 locations = parsed.bundle.locations.map { entry ->
                     entry.copy(
-                        metadata = entry.metadata.withSubscriptionInterval(resolvedInterval)
+                        metadata = entry.metadata
+                            .withSubscriptionInterval(resolvedInterval)
+                            .withSubscriptionRequestSecurity(source.allowInsecureRequests)
                     ).normalized()
                 }
             ).normalized()
@@ -668,7 +698,8 @@ class LocationsRepositoryImpl(
     private suspend fun resolveImportSourceDetailed(
         text: String,
         requestMode: SubscriptionRequestMode,
-        subscriptionProxy: SubscriptionFetchProxy?
+        subscriptionProxy: SubscriptionFetchProxy?,
+        allowInsecureRequests: Boolean
     ): ImportSourceResult {
         if (text.isBlank()) {
             return ImportSourceResult.Failure(
@@ -687,7 +718,8 @@ class LocationsRepositoryImpl(
             val downloaded = downloadTextFromUrl(
                 url = text,
                 requestMode = requestMode,
-                subscriptionProxy = subscriptionProxy
+                subscriptionProxy = subscriptionProxy,
+                allowInsecureRequests = allowInsecureRequests
             )
         ) {
             is DownloadSubscriptionResult.Success -> {
@@ -696,7 +728,8 @@ class LocationsRepositoryImpl(
                         content = downloaded.value.content.normalizedImportText(),
                         subscriptionUrl = text.trim(),
                         updateIntervalMs = downloaded.value.updateIntervalMs,
-                        requestMode = requestMode
+                        requestMode = requestMode,
+                        allowInsecureRequests = allowInsecureRequests
                     )
                 )
             }
@@ -709,17 +742,19 @@ class LocationsRepositoryImpl(
     private suspend fun downloadTextFromUrl(
         url: String,
         requestMode: SubscriptionRequestMode,
-        subscriptionProxy: SubscriptionFetchProxy?
+        subscriptionProxy: SubscriptionFetchProxy?,
+        allowInsecureRequests: Boolean
     ): DownloadSubscriptionResult {
         val hwid = if (requestMode == SubscriptionRequestMode.Identity) {
             deviceIdentityProvider.hwid()
         } else {
             null
         }
-        val client = if (subscriptionProxy == null) {
-            httpClient
+        val usesDedicatedClient = subscriptionProxy != null || allowInsecureRequests
+        val client = if (usesDedicatedClient) {
+            subscriptionHttpClientFactory(subscriptionProxy, allowInsecureRequests)
         } else {
-            createProxyHttpClient(subscriptionProxy)
+            httpClient
         }
 
         return try {
@@ -776,7 +811,7 @@ class LocationsRepositoryImpl(
                 )
             }
         } finally {
-            if (subscriptionProxy != null) {
+            if (usesDedicatedClient) {
                 client.close()
             }
         }
@@ -1472,6 +1507,17 @@ class LocationsRepositoryImpl(
             subscription = subscription.copy(manualUpdateIntervalMs = intervalMs)
         )
             .normalized()
+    }
+
+    private fun LocationMetadata?.withSubscriptionRequestSecurity(
+        allowInsecureRequests: Boolean
+    ): LocationMetadata {
+        val subscription = this?.subscription ?: SubscriptionMetadata()
+        return (this ?: LocationMetadata()).copy(
+            subscription = subscription.copy(
+                allowInsecureRequests = allowInsecureRequests
+            )
+        ).normalized()
     }
 
     private fun LocationMetadata?.withSubscriptionRefreshState(

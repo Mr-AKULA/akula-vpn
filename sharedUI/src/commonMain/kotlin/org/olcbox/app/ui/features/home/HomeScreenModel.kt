@@ -287,6 +287,7 @@ class HomeScreenViewModel(
     fun onImportFullConfig(
         rawText: String,
         subscriptionRefreshIntervalMs: Long? = null,
+        allowInsecureSubscriptionRequests: Boolean = false,
         onComplete: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -299,7 +300,8 @@ class HomeScreenViewModel(
                 val result = withContext(Dispatchers.IO) {
                     locationsRepository.importTextDetailed(
                         text = rawText,
-                        subscriptionProxy = vpnManager.subscriptionFetchProxy()
+                        subscriptionProxy = vpnManager.subscriptionFetchProxy(),
+                        allowInsecureRequests = allowInsecureSubscriptionRequests
                     )
                 }
                 when (result) {

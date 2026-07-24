@@ -9,19 +9,35 @@ import kotlinx.coroutines.sync.withLock
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import java.net.Authenticator
 import java.net.PasswordAuthentication
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLContext
+import javax.net.ssl.X509TrustManager
 
 internal actual fun createProxyHttpClient(
     subscriptionProxy: SubscriptionFetchProxy?,
     connectTimeoutMs: Long,
     requestTimeoutMs: Long,
-    socketTimeoutMs: Long
+    socketTimeoutMs: Long,
+    allowInsecureRequests: Boolean
 ): HttpClient {
+    val insecureTrustManager = if (allowInsecureRequests) trustAllCertificatesManager() else null
+
     return HttpClient(OkHttp) {
         expectSuccess = false
 
         engine {
             if (subscriptionProxy != null) {
                 proxy = ProxyBuilder.socks(subscriptionProxy.host, subscriptionProxy.port)
+            }
+            if (insecureTrustManager != null) {
+                val sslContext = SSLContext.getInstance("TLS").apply {
+                    init(null, arrayOf(insecureTrustManager), SecureRandom())
+                }
+                config {
+                    sslSocketFactory(sslContext.socketFactory, insecureTrustManager)
+                    hostnameVerifier { _, _ -> true }
+                }
             }
         }
 
@@ -52,6 +68,14 @@ internal actual suspend fun <T> withProxyAuthentication(
 }
 
 private val proxyAuthenticatorMutex = Mutex()
+
+private fun trustAllCertificatesManager(): X509TrustManager {
+    return object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+        override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+    }
+}
 
 private fun SubscriptionFetchProxy.authenticator(): Authenticator {
     val proxy = this
