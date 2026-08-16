@@ -425,7 +425,25 @@ jobs:
             echo "Android release APK was not found" >&2
             exit 1
           fi
-          cp "${release_apk}" "dist/Olcbox-${OLCBOX_VERSION}-android-release.apk"
+          cp "${release_apk}" "dist/Olcbox-${OLCBOX_VERSION}-android-universal-release.apk"
+
+      - name: Build arm64-v8a production APK
+        working-directory: olcbox
+        run: |
+          export OLCRTC_REPO="${{ github.workspace }}/olcrtc"
+          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/${ANDROID_NDK_VERSION}"
+          export ANDROID_NDK_ROOT="${ANDROID_NDK_HOME}"
+          ./gradlew -Polcbox.version="${OLCBOX_VERSION}" -Polcbox.versionCode="${OLCBOX_VERSION_CODE}" -Polcbox.android.abiFilters=arm64-v8a :androidApp:clean :androidApp:assembleRelease --stacktrace
+
+      - name: Prepare arm64-v8a Android release asset
+        working-directory: olcbox
+        run: |
+          release_apk="$(find androidApp/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' | sort | head -n 1)"
+          if [ -z "${release_apk}" ]; then
+            echo "Android arm64-v8a release APK was not found" >&2
+            exit 1
+          fi
+          cp "${release_apk}" "dist/Olcbox-${OLCBOX_VERSION}-android-arm64-v8a-release.apk"
 
       - name: Build armeabi-v7a production APK
         working-directory: olcbox
@@ -450,7 +468,8 @@ jobs:
         with:
           name: Olcbox-android-apks
           path: |
-            olcbox/dist/Olcbox-*-android-release.apk
+            olcbox/dist/Olcbox-*-android-universal-release.apk
+            olcbox/dist/Olcbox-*-android-arm64-v8a-release.apk
             olcbox/dist/Olcbox-*-android-armeabi-v7a-release.apk
 
   build-ios:
@@ -604,7 +623,7 @@ jobs:
             echo "- olcrtc commit: \`${OLCBOX_OLCRTC_SHA}\`"
             echo "- App version: \`${OLCBOX_VERSION}\`"
             echo "- Android versionCode: \`${OLCBOX_VERSION_CODE}\`"
-            echo "- Android APKs: universal and \`armeabi-v7a\`"
+            echo "- Android APKs: universal, \`arm64-v8a\`, and \`armeabi-v7a\`"
             echo "- Workflow: \`.github/workflows/release.yml\`"
             echo "- Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
