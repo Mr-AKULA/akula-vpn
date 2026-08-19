@@ -457,6 +457,7 @@ class DesktopVpnManager private constructor(
     ): Process {
         val config = location.normalized()
         val provider = OlcRtcCommand.desktopProviderArg(config.bypassProvider)
+        val dataDir = DesktopNativeAssets.resolveOlcRtcDataDir()
         val olcRtcCommand = OlcRtcCommand(
             binary = binary,
             location = config,
@@ -464,7 +465,8 @@ class DesktopVpnManager private constructor(
             socksPort = socksSettings.port,
             socksUser = socksSettings.username,
             socksPass = socksSettings.password,
-            dnsServer = dnsServer
+            dnsServer = dnsServer,
+            dataDir = dataDir
         )
         val configPath = writeOlcRtcClientConfig(olcRtcCommand)
         val command = olcRtcCommand.args(configPath)

@@ -23,6 +23,7 @@ internal data class OlcRtcCommand(
 
         return buildString {
             appendLine("mode: cnc")
+            appendLine("link: direct")
             appendLine("auth:")
             appendLine("  provider: ${provider.yamlValue()}")
             appendLine("room:")
@@ -53,7 +54,7 @@ internal data class OlcRtcCommand(
                     appendLine("  ack_timeout_ms: 2000")
                 }
             }
-            dataDir?.let { appendLine("data: ${it.toString().yamlValue()}") }
+            appendLine("data: ${(dataDir?.toString() ?: "data").yamlValue()}")
         }
     }
 

@@ -242,12 +242,15 @@ internal object OlcRtcConnectionChecker {
         privileged: Boolean
     ): Process {
         val normalized = config.normalized()
+        val dataDir = DesktopNativeAssets.resolveOlcRtcDataDir()
+
         val command = OlcRtcCommand(
             binary = binary,
             location = normalized,
             socksHost = PacServer.LOCAL_SOCKS_HOST,
             socksPort = socksPort,
-            dnsServer = normalized.dnsServer.ifBlank { DesktopDnsResolver.current() }
+            dnsServer = normalized.dnsServer.ifBlank { DesktopDnsResolver.current() },
+            dataDir = dataDir
         )
         val configPath = writeOlcRtcClientConfig(command)
 
@@ -275,7 +278,7 @@ internal object OlcRtcConnectionChecker {
     }
 
     private fun writeOlcRtcClientConfig(command: OlcRtcCommand): Path {
-        val runtimeDir = DesktopPaths.appDataDir().resolve("runtime")
+        val runtimeDir = DesktopNativeAssets.resolveOlcRtcDataDir().parent.resolve("runtime")
         Files.createDirectories(runtimeDir)
         val path = Files.createTempFile(runtimeDir, "olcrtc-check-", ".yaml")
         Files.writeString(path, command.yaml(), StandardCharsets.UTF_8)

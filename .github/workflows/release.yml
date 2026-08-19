@@ -10,9 +10,9 @@ permissions:
 
 env:
   OLCBOX_VERSION_MAJOR_MINOR: "1.0"
-  # Keep release builds on the matching olcrtc ref until the universal carrier
-  # changes land in olcrtc master.
-  OLCBOX_OLCRTC_REF: "master"
+  # Pin the last known-compatible core while the post-2f2db04 handshake and
+  # runtime regressions in olcrtc master are being resolved upstream.
+  OLCBOX_OLCRTC_REF: "2f2db04c332667ac43ad0f9e99d76c1bd8bd3248"
   # The alananisimov/olcbox workflow was recreated after 1.0.69, so
   # github.run_number restarted. Run #6 must publish Android versionCode 70.
   OLCBOX_RELEASE_RUN_NUMBER_BASE: "5"
