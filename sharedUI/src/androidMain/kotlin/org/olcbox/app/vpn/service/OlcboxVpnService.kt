@@ -33,7 +33,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import mobile.LogWriter
 import mobile.Mobile
 import mobile.SocketProtector
 import org.olcbox.app.data.TUN2SOCKS_CONFIG_FILE_NAME
@@ -75,6 +74,7 @@ class OlcboxVpnService : VpnService() {
 
     private val job = SupervisorJob()
     private val scope = CoroutineScope(Dispatchers.Default + job)
+    private val olcRtcRuntime = Mobile.new_()
     private val tunnelMutex = Mutex()
     private val repository: LocationsRepository by lazy {
         LocationsRepositoryImpl(LocationsDataSourceImpl(applicationContext))
@@ -224,7 +224,7 @@ class OlcboxVpnService : VpnService() {
 
                 is VpnStatus.Reconnecting -> {
                     if (isBenignWifiRefresh(previousTransport, nextTransport) &&
-                        Mobile.isRunning() &&
+                        olcRtcRuntime.isRunning &&
                         canReconnectTransportInPlace()
                     ) {
                         setStatus(VpnStatus.Connected)
@@ -299,19 +299,10 @@ class OlcboxVpnService : VpnService() {
     }
 
     private fun installMobileCallbacks() {
-        Mobile.setProtector(object : SocketProtector {
+        olcRtcRuntime.setProtector(object : SocketProtector {
             override fun protect(fd: Long): Boolean {
                 if (connectionMode == AndroidConnectionMode.Proxy) return true
                 return this@OlcboxVpnService.protect(fd.toInt())
-            }
-        })
-        Mobile.setProviders()
-        Mobile.setLogWriter(object : LogWriter {
-            override fun writeLog(msg: String) {
-                val line = msg.trimEnd()
-                addLog("rtc: $line")
-                Log.v("olcrtc", line)
-                handleRtcLine(line)
             }
         })
     }
@@ -586,23 +577,14 @@ class OlcboxVpnService : VpnService() {
             }
             waitForJitsiRoomCleanup(config.bypassProvider)
             bindProcessToNetwork(upstream, "Bound to ${getNetName(upstream)}")
-            configureMobileTransport(config)
+            configureMobileRuntime(config, deviceId, targetSocksPort)
             addLog(
                 "Starting olcRTC provider=${config.bypassProvider}, " +
                     "transport=${config.transport}, room=${config.id}"
             )
             lastMobileProvider = config.bypassProvider
-            Mobile.startWithTransport(
-                config.bypassProvider,
-                config.transport,
-                config.id,
-                deviceId,
-                config.key,
-                targetSocksPort.toLong(),
-                socksUsername,
-                socksPassword
-            )
-            Mobile.waitReady(MOBILE_READY_TIMEOUT_MS)
+            olcRtcRuntime.start()
+            olcRtcRuntime.waitReady(MOBILE_READY_TIMEOUT_MS)
             if (requestedGeneration != generation) {
                 addLog("olcRTC start superseded")
                 return false
@@ -638,7 +620,7 @@ class OlcboxVpnService : VpnService() {
             }
             false
         } finally {
-            if (!keepProcessBound || !Mobile.isRunning()) {
+            if (!keepProcessBound || !olcRtcRuntime.isRunning) {
                 unbindProcessFromNetwork()
             }
         }
@@ -655,13 +637,22 @@ class OlcboxVpnService : VpnService() {
         delay(waitMs)
     }
 
-    private fun configureMobileTransport(location: LocationConfig) {
+    private fun configureMobileRuntime(
+        location: LocationConfig,
+        deviceId: String,
+        socksPort: Int
+    ) {
         val config = location.normalized()
-        Mobile.setProviders()
-        Mobile.setTransport(config.transport)
-        Mobile.setDNS(config.dnsServer.ifBlank { DEFAULT_OLCRTC_DNS_SERVER })
-        Mobile.setSocksListenHost(socksListenHost)
-        Mobile.setVP8Options(config.vp8Fps.toLong(), config.vp8Batch.toLong())
+        olcRtcRuntime.setProvider(config.bypassProvider)
+        olcRtcRuntime.setTransport(config.transport)
+        olcRtcRuntime.setRoom(config.id)
+        olcRtcRuntime.setKey(config.key)
+        olcRtcRuntime.setDeviceID(deviceId)
+        olcRtcRuntime.setDNS(config.dnsServer.ifBlank { DEFAULT_OLCRTC_DNS_SERVER })
+        olcRtcRuntime.setSocksListenHost(socksListenHost)
+        olcRtcRuntime.setSocksPort(socksPort.toLong())
+        olcRtcRuntime.setSocksCredentials(socksUsername, socksPassword)
+        olcRtcRuntime.setVP8Options(config.vp8Fps.toLong(), config.vp8Batch.toLong())
     }
 
     private fun startTun2socks(pfd: ParcelFileDescriptor): Boolean {
@@ -843,7 +834,7 @@ class OlcboxVpnService : VpnService() {
             while (isActive && OlcboxVpnState.status.value is VpnStatus.Connected) {
                 delay(WATCHDOG_INTERVAL_MS)
                 when {
-                    !Mobile.isRunning() -> {
+                    !olcRtcRuntime.isRunning -> {
                         addLog("Watchdog: olcRTC stopped")
                         requestTransportRecovery("olcRTC stopped", fullRestart = false)
                         return@launch
@@ -1007,8 +998,8 @@ class OlcboxVpnService : VpnService() {
 
     private fun stopMobile() {
         val provider = lastMobileProvider
-        val wasRunning = Mobile.isRunning()
-        runCatching { Mobile.stop() }
+        val wasRunning = olcRtcRuntime.isRunning
+        runCatching { olcRtcRuntime.stop(MOBILE_STOP_TIMEOUT_MS) }
         if (wasRunning && provider == LocationConfig.PROVIDER_JITSI) {
             lastJitsiStopCompletedAtMs = System.currentTimeMillis()
         }
@@ -1140,7 +1131,7 @@ class OlcboxVpnService : VpnService() {
 
         val txDelta = stats.txPackets - previous.txPackets
         val rxDelta = stats.rxPackets - previous.rxPackets
-        if (txDelta >= WATCHDOG_STALLED_TX_PACKET_DELTA && rxDelta <= 0L && Mobile.isRunning()) {
+        if (txDelta >= WATCHDOG_STALLED_TX_PACKET_DELTA && rxDelta <= 0L && olcRtcRuntime.isRunning) {
             watchdogStalledSamples++
         } else if (rxDelta > 0L || txDelta <= 0L) {
             watchdogStalledSamples = 0
@@ -1276,7 +1267,7 @@ class OlcboxVpnService : VpnService() {
     private fun canReconnectTransportInPlace(): Boolean {
         return when (connectionMode) {
             AndroidConnectionMode.Tun -> vpnInterface != null && tun2socksThread?.isAlive == true
-            AndroidConnectionMode.Proxy -> Mobile.isRunning()
+            AndroidConnectionMode.Proxy -> olcRtcRuntime.isRunning
         }
     }
 
@@ -1294,7 +1285,7 @@ class OlcboxVpnService : VpnService() {
             vpnInterface != null ||
             tun2socksThread != null ||
             socksProxy != null ||
-            Mobile.isRunning()
+            olcRtcRuntime.isRunning
     }
 
     private fun registerNetworkMonitor() {
@@ -1655,6 +1646,7 @@ class OlcboxVpnService : VpnService() {
         private const val LOCAL_SOCKS_PORT_BASE = 10818
         private const val LOCAL_SOCKS_PORT_MAX = 10858
         private const val MOBILE_READY_TIMEOUT_MS = 25_000L
+        private const val MOBILE_STOP_TIMEOUT_MS = 5_000L
         private const val PREVIOUS_STOP_WAIT_MS = 12_000L
         private const val JITSI_RESTART_SETTLE_MS = 2_000L
         private const val TUN2SOCKS_STOP_WAIT_MS = 1_000L

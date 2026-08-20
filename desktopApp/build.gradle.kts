@@ -264,13 +264,6 @@ val buildOlcRtcLibWindowsAmd64 = registerOlcRtcLibraryBuildTask(
     outputName = "olcrtc-windows-amd64.dll"
 )
 
-val copyOlcRtcDataAssets = tasks.register<Copy>("copyOlcRtcDataAssets") {
-    from(olcrtcRepoDir.map { it.resolve("data") }) {
-        include("names", "surnames")
-    }
-    into(generatedNativeResources.map { it.dir("olcrtc-data") })
-}
-
 val desktopNativeAssetTasks = mutableListOf<Any>(
     buildOlcRtcDarwinArm64,
     buildOlcRtcDarwinAmd64,
@@ -281,12 +274,9 @@ val desktopNativeAssetTasks = mutableListOf<Any>(
     buildOlcRtcLibDarwinAmd64,
     buildOlcRtcLibLinuxAmd64,
     buildOlcRtcLibLinuxArm64,
-    buildOlcRtcLibWindowsAmd64,
-    copyOlcRtcDataAssets
+    buildOlcRtcLibWindowsAmd64
 )
-val hostDesktopNativeAssetTasks = mutableListOf<Any>(
-    copyOlcRtcDataAssets
-)
+val hostDesktopNativeAssetTasks = mutableListOf<Any>()
 
 when {
     currentBuildOs.isMacOsX -> when (hostDesktopArch) {
@@ -371,8 +361,6 @@ if (currentBuildOs.isWindows) {
 }
 
 fun requiredHostNativeResourcePaths(): List<String> = buildList {
-    add("olcrtc-data/names")
-    add("olcrtc-data/surnames")
     when {
         currentBuildOs.isMacOsX -> {
             add("native/olcrtc-darwin-$hostDesktopArch")

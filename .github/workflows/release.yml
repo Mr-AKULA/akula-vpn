@@ -10,9 +10,9 @@ permissions:
 
 env:
   OLCBOX_VERSION_MAJOR_MINOR: "1.0"
-  # Pin the last known-compatible core while the post-2f2db04 handshake and
-  # runtime regressions in olcrtc master are being resolved upstream.
-  OLCBOX_OLCRTC_REF: "2f2db04c332667ac43ad0f9e99d76c1bd8bd3248"
+  # Pin release builds to a reviewed olcrtc commit so nightly rebuilds remain
+  # reproducible even when olcrtc master advances.
+  OLCBOX_OLCRTC_REF: "f616f57bb3a90740f1755922ffeaa7acc5cfe4ed"
   # The alananisimov/olcbox workflow was recreated after 1.0.69, so
   # github.run_number restarted. Run #6 must publish Android versionCode 70.
   OLCBOX_RELEASE_RUN_NUMBER_BASE: "5"
@@ -624,6 +624,7 @@ jobs:
             echo "- App version: \`${OLCBOX_VERSION}\`"
             echo "- Android versionCode: \`${OLCBOX_VERSION_CODE}\`"
             echo "- Android APKs: universal, \`arm64-v8a\`, and \`armeabi-v7a\`"
+            echo "- Compatibility: requires an updated olcrtc server using the authenticated record protocol"
             echo "- Workflow: \`.github/workflows/release.yml\`"
             echo "- Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo
