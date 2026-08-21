@@ -648,7 +648,7 @@ class OlcboxVpnService : VpnService() {
         olcRtcRuntime.setRoom(config.id)
         olcRtcRuntime.setKey(config.key)
         olcRtcRuntime.setDeviceID(deviceId)
-        olcRtcRuntime.setDNS(config.dnsServer.ifBlank { DEFAULT_OLCRTC_DNS_SERVER })
+        olcRtcRuntime.setDNS(resolveOlcRtcDnsServer(config.dnsServer))
         olcRtcRuntime.setSocksListenHost(socksListenHost)
         olcRtcRuntime.setSocksPort(socksPort.toLong())
         olcRtcRuntime.setSocksCredentials(socksUsername, socksPassword)
@@ -1316,6 +1316,32 @@ class OlcboxVpnService : VpnService() {
         }
         val selectedIndex = UpstreamNetworkSelector.selectIndex(candidates.map { it.second }) ?: return null
         return candidates[selectedIndex].first
+    }
+
+    private fun resolveOlcRtcDnsServer(configuredDnsServer: String): String {
+        if (configuredDnsServer.isNotBlank()) {
+            addLog("Using configured DNS server $configuredDnsServer for olcRTC signaling")
+            return configuredDnsServer
+        }
+
+        val upstreamDnsServer = currentNetwork
+            ?.let(connectivityManager::getLinkProperties)
+            ?.dnsServers
+            ?.asSequence()
+            ?.filterNot { it.isAnyLocalAddress || it.isLoopbackAddress || it.isMulticastAddress }
+            ?.sortedBy { it.address.size }
+            ?.mapNotNull { it.hostAddress }
+            ?.map(::dnsEndpoint)
+            ?.firstOrNull()
+
+        val selectedDnsServer = upstreamDnsServer ?: DEFAULT_OLCRTC_DNS_SERVER
+        val source = if (upstreamDnsServer != null) "upstream" else "fallback"
+        addLog("Using $source DNS server $selectedDnsServer for olcRTC signaling")
+        return selectedDnsServer
+    }
+
+    private fun dnsEndpoint(address: String): String {
+        return if (':' in address) "[$address]:53" else "$address:53"
     }
 
     private fun NetworkCapabilities.isUsableUpstream(): Boolean {
