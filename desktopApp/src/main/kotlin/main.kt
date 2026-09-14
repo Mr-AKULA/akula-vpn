@@ -72,10 +72,14 @@ import java.security.SecureRandom
 import kotlin.math.min
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
 import com.google.zxing.common.BitMatrix
 import org.olcbox.app.CurrentAppInfo
+import org.olcbox.app.desktop.DesktopDeepLinks
+import org.olcbox.app.desktop.DesktopDeepLinkRegistration
 import org.olcbox.app.data.datasource.JvmLocationsDataSourceImpl
 import org.olcbox.app.data.datasource.LocationsRepositoryImpl
 import org.olcbox.app.data.exporter.JvmLogExporter
@@ -137,7 +141,21 @@ private class DesktopAppDependencies {
 
 private const val WINDOWS_ELEVATED_START_ARGUMENT = "--olcbox-start-vpn-after-elevation"
 
-fun main(args: Array<String>) = application {
+fun main(args: Array<String>) {
+    val launchArgs = if (args.any { it.startsWith("olcbox:", ignoreCase = true) }) {
+        args.filterNot { it == WINDOWS_ELEVATED_START_ARGUMENT }.toTypedArray()
+    } else args
+    val deepLinks = DesktopDeepLinks.open(
+        launchArgs,
+        waitForPreviousExit = WINDOWS_ELEVATED_START_ARGUMENT in launchArgs
+    ) ?: return
+    deepLinks.use {
+        it.installMacHandler()
+        runDesktopApp(launchArgs, it)
+    }
+}
+
+private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = application(exitProcessOnExit = false) {
     // Configure JNA to find native libraries in resources
     System.setProperty(
         "jna.library.path",
@@ -159,6 +177,10 @@ fun main(args: Array<String>) = application {
     val scope = rememberCoroutineScope()
     val trayState = rememberTrayState()
     val trayHomeState by dependencies.homeViewModel.state.collectAsState()
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { DesktopDeepLinkRegistration.register() }
+    }
 
     suspend fun saveUpdateSettings(settings: AppUpdateSettings) {
         val normalized = settings.normalized()
@@ -291,6 +313,17 @@ fun main(args: Array<String>) = application {
     ) {
         window.minimumSize = Dimension(350, 600)
 
+        LaunchedEffect(deepLinks) {
+            deepLinks.events.collect { uri ->
+                isWindowVisible = true
+                window.isVisible = true
+                window.extendedState = window.extendedState and Frame.ICONIFIED.inv()
+                window.toFront()
+                window.requestFocus()
+                if (uri.isNotEmpty()) dependencies.homeViewModel.importLinks.open(uri)
+            }
+        }
+
         DisposableEffect(Unit) {
             onDispose {
                 dependencies.close()
@@ -360,7 +393,12 @@ fun main(args: Array<String>) = application {
                     showSplitTunnelingButton = false,
                     canScanQr = false,
                     onAppSettingsClick = { showDesktopSettings = true },
-                    onSplitTunnelingClick = {}
+                    onSplitTunnelingClick = {},
+                    onDeepLinkOpened = {
+                        showDesktopSettings = false
+                        sharePayload = null
+                        updateOffer = null
+                    }
                 )
 
                 if (showDesktopSettings) {

@@ -1,6 +1,7 @@
 package org.olcbox.app
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -22,6 +23,8 @@ import org.olcbox.app.update.AppUpdateService
 import org.olcbox.app.vpn.AndroidVpnManager
 
 class AppActivity : ComponentActivity() {
+
+    private lateinit var homeViewModel: HomeScreenViewModel
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -52,6 +55,8 @@ class AppActivity : ComponentActivity() {
             configImporter = configImporter,
             logExporter = logExporter
         )
+        homeViewModel = viewModel
+        if (savedInstanceState == null) receiveDeepLink(intent)
         val locationViewModel = LocationViewModel(
             locationsRepository = locationsRepository
         )
@@ -68,6 +73,18 @@ class AppActivity : ComponentActivity() {
                     appUpdateService = updateService
                 )
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveDeepLink(intent)
+    }
+
+    private fun receiveDeepLink(intent: Intent) {
+        if (intent.action == Intent.ACTION_VIEW) {
+            intent.dataString?.let(homeViewModel.importLinks::open)
         }
     }
 }

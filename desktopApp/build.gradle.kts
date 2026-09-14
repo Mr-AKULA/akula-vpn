@@ -476,6 +476,15 @@ compose.desktop {
             macOS {
                 iconFile.set(project.file("appIcons/MacosIcon.icns"))
                 bundleID = "org.olcbox.app.desktopApp"
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>CFBundleURLTypes</key>
+                        <array><dict>
+                            <key>CFBundleURLName</key><string>org.olcbox.app.import</string>
+                            <key>CFBundleURLSchemes</key><array><string>olcbox</string></array>
+                        </dict></array>
+                    """.trimIndent()
+                }
             }
         }
     }
@@ -524,10 +533,11 @@ if (currentBuildOs.isLinux) {
             [Desktop Entry]
             Type=Application
             Name=$desktopPackageName
-            Exec=$desktopPackageName
+            Exec=$desktopPackageName %u
             Icon=olcbox
             Categories=Network;Utility;
             Terminal=false
+            MimeType=x-scheme-handler/olcbox;
             DESKTOP
 
             cp "${'$'}icon_file" "${'$'}target_dir/olcbox.png"

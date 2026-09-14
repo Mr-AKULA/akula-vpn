@@ -20,11 +20,13 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,15 +65,32 @@ fun HomeScreen(
 ) {
     var isLogsSheetOpen by remember { mutableStateOf(false) }
     var isAddSheetOpen by remember { mutableStateOf(false) }
-    var isManualImportOpen by remember { mutableStateOf(false) }
-    var manualImportText by remember { mutableStateOf("") }
-    var manualSubscriptionRefresh by remember { mutableStateOf("") }
-    var manualSubscriptionAllowInsecure by remember { mutableStateOf(false) }
+    var isManualImportOpen by rememberSaveable { mutableStateOf(false) }
+    var manualImportText by rememberSaveable { mutableStateOf("") }
+    var manualSubscriptionRefresh by rememberSaveable { mutableStateOf("") }
+    var manualSubscriptionAllowInsecure by rememberSaveable { mutableStateOf(false) }
     var updatingSubscriptionUrl by remember { mutableStateOf<String?>(null) }
 
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
+    val pendingLink by viewModel.importLinks.pending.collectAsState()
+    LaunchedEffect(pendingLink) {
+        val request = pendingLink ?: return@LaunchedEffect
+        if (request.url != null) {
+            isLogsSheetOpen = false
+            isAddSheetOpen = false
+            manualImportText = request.url
+            manualSubscriptionRefresh = ""
+            manualSubscriptionAllowInsecure = false
+            isManualImportOpen = true
+        } else {
+            scope.launch {
+                snackbarHostState.showSnackbar("Invalid import link. Expected olcbox://add?url=<encoded HTTP(S) URL>")
+            }
+        }
+        viewModel.importLinks.consume(request)
+    }
     val pingsState = locationViewModel.pingsState
     val locations = locationViewModel.locations.toList()
     val hasSubscriptions = locations.any { !it.subscriptionUrl.isNullOrBlank() }

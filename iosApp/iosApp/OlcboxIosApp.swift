@@ -25,6 +25,9 @@ struct OlcboxIosApp: App {
                 appSession: appSession
             )
             .ignoresSafeArea()
+            .onOpenURL { url in
+                appSession.openDeepLink(uri: url.absoluteString)
+            }
         }
     }
 }

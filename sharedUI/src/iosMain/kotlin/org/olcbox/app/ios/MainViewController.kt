@@ -65,6 +65,10 @@ class IosAppSession internal constructor(
 ) {
     private val dependencies = IosAppDependencies(platformBridge, olcRtcBridge)
 
+    fun openDeepLink(uri: String) {
+        dependencies.homeViewModel.importLinks.open(uri)
+    }
+
     fun createViewController(): UIViewController {
         return ComposeUIViewController {
             IosApp(platformBridge, dependencies)
@@ -245,7 +249,12 @@ private fun IosApp(
                 showSplitTunnelingButton = false,
                 canScanQr = false,
                 onAppSettingsClick = { isAppSettingsOpen = true },
-                onSplitTunnelingClick = {}
+                onSplitTunnelingClick = {},
+                onDeepLinkOpened = {
+                    isAppSettingsOpen = false
+                    updateOffer = null
+                    showSocksOnboarding = false
+                }
             )
 
             if (isAppSettingsOpen) {

@@ -10,6 +10,9 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.ui.features.home.HomeScreen
 import org.olcbox.app.ui.features.home.HomeScreenViewModel
@@ -34,9 +37,18 @@ fun OlcboxAppContent(
     showSplitTunnelingButton: Boolean = false,
     canScanQr: Boolean = false,
     onAppSettingsClick: () -> Unit,
-    onSplitTunnelingClick: () -> Unit = {}
+    onSplitTunnelingClick: () -> Unit = {},
+    onDeepLinkOpened: () -> Unit = {}
 ) {
     val homeScrollState = rememberScrollState()
+    val pendingLink by homeViewModel.importLinks.pending.collectAsState()
+    val request = pendingLink
+    LaunchedEffect(request) {
+        if (request != null) {
+            onDeepLinkOpened()
+            onNavigate(AppScreen.Home)
+        }
+    }
 
     AnimatedContent(
         targetState = currentScreen,

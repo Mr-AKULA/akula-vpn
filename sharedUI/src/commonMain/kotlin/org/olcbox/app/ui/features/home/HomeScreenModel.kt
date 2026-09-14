@@ -16,6 +16,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.olcbox.app.data.exporter.LogExporter
 import org.olcbox.app.data.importer.ConfigImporter
+import org.olcbox.app.data.importer.ImportLinkInbox
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.repository.LocationImportResult
 import org.olcbox.app.data.repository.LocationsRepository
@@ -29,6 +30,8 @@ class HomeScreenViewModel(
     private val configImporter: ConfigImporter,
     private val logExporter: LogExporter
 ) : ViewModel() {
+
+    val importLinks = ImportLinkInbox()
 
     private val _state = MutableStateFlow(
         HomeScreenState(

@@ -72,6 +72,7 @@ internal class WindowsTunController(
         val currentCommand = processInfo.command().orElse(null)
             ?: error("Olcbox cannot resolve its Windows launcher for administrator restart")
         val currentArguments = processInfo.arguments().orElse(emptyArray()).toList()
+            .filterNot { it.startsWith("olcbox:", ignoreCase = true) }
         val restartArguments = if (ELEVATED_START_ARGUMENT in currentArguments) {
             currentArguments
         } else {

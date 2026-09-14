@@ -47,6 +47,9 @@ The author does not support or encourage such use.
 
 ## Platform Matrix
 
+Subscriptions can be opened with `olcbox://add?url=<URL-encoded address>`.
+See [deep-link format and integration examples](docs/deep-links.md).
+
 | Platform | Modes | Runtime |
 | --- | --- | --- |
 | Android | TUN, proxy | `VpnService`, `hev-socks5-tunnel`, local `olcrtc` SOCKS5 |

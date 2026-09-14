@@ -393,6 +393,11 @@ fun AndroidMainScreen(
             appSettingsInitialRoute = AppSettingsInitialRoute.SplitTunneling
             vpnManager.refreshInstalledApps()
             isAppSettingsOpen = true
+        },
+        onDeepLinkOpened = {
+            isAppSettingsOpen = false
+            shareSheetPayload = null
+            updateOffer = null
         }
     )
 
