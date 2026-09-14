@@ -3,7 +3,7 @@ package org.olcbox.app.ui.features.locations
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,7 +15,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -123,6 +124,7 @@ fun LocationSettingsScreen(
     val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
 
     Scaffold(
+        modifier = Modifier.fillMaxSize().imePadding(),
         topBar = {
             LocationSettingsTopBar(
                 shareEnabled = viewModel.isFormValid && !isSaving,
@@ -159,129 +161,113 @@ fun LocationSettingsScreen(
             }
         }
     ) { innerPadding ->
-        LazyColumn(
+        // Keep focused fields composed while the IME or paste toolbar changes the viewport.
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .imePadding(),
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                .consumeWindowInsets(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            item {
-                SettingsTextField(
-                    value = name,
-                    onValueChange = viewModel::onNameChanged,
-                    label = "Name",
-                    placeholder = "Location name",
-                    enabled = !isSaving,
-                    isError = viewModel.nameError != null,
-                    supportingText = viewModel.nameError,
-                    leadingIcon = Icons.Rounded.Public,
-                    onClear = { viewModel.onNameChanged("") },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
-                )
-            }
+            SettingsTextField(
+                value = name,
+                onValueChange = viewModel::onNameChanged,
+                label = "Name",
+                placeholder = "Location name",
+                enabled = !isSaving,
+                isError = viewModel.nameError != null,
+                supportingText = viewModel.nameError,
+                leadingIcon = Icons.Rounded.Public,
+                onClear = { viewModel.onNameChanged("") },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
+            )
 
-            item {
-                ConnectionTypePicker(
+            ConnectionTypePicker(
+                selectedProvider = config.bypassProvider,
+                serviceProvider = viewModel.editingServiceProvider,
+                enabled = !isSaving,
+                onProviderSelected = viewModel::onBypassProviderChanged
+            )
+
+            if (!isJitsiProvider(config.bypassProvider)) {
+                ProviderPicker(
                     selectedProvider = config.bypassProvider,
-                    serviceProvider = viewModel.editingServiceProvider,
                     enabled = !isSaving,
                     onProviderSelected = viewModel::onBypassProviderChanged
                 )
             }
 
-            if (!isJitsiProvider(config.bypassProvider)) {
-                item {
-                    ProviderPicker(
-                        selectedProvider = config.bypassProvider,
-                        enabled = !isSaving,
-                        onProviderSelected = viewModel::onBypassProviderChanged
-                    )
-                }
-            }
-
             if (LocationConfig.supportedTransportsForProvider(config.bypassProvider).size > 1) {
-                item {
-                    TransportPicker(
-                        selectedProvider = config.bypassProvider,
-                        selectedTransport = config.transport,
-                        enabled = !isSaving,
-                        onTransportSelected = viewModel::onTransportChanged
-                    )
-                }
+                TransportPicker(
+                    selectedProvider = config.bypassProvider,
+                    selectedTransport = config.transport,
+                    enabled = !isSaving,
+                    onTransportSelected = viewModel::onTransportChanged
+                )
             }
 
             if (normalizedTransport == LocationConfig.TRANSPORT_VP8CHANNEL) {
-                item {
-                    Vp8OptionsCard(
-                        fps = config.vp8Fps,
-                        batch = config.vp8Batch,
-                        enabled = !isSaving,
-                        onFpsChanged = viewModel::onVp8FpsChanged,
-                        onBatchChanged = viewModel::onVp8BatchChanged
-                    )
-                }
-            }
-
-            item {
-                SettingsTextField(
-                    value = config.id,
-                    onValueChange = viewModel::onServerChanged,
-                    label = roomIdLabel(config.bypassProvider),
-                    placeholder = roomIdPlaceholder(config.bypassProvider),
+                Vp8OptionsCard(
+                    fps = config.vp8Fps,
+                    batch = config.vp8Batch,
                     enabled = !isSaving,
-                    isError = viewModel.serverError != null,
-                    supportingText = viewModel.serverError,
-                    leadingIcon = Icons.Rounded.MeetingRoom,
-                    onClear = { viewModel.onServerChanged("") },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = roomKeyboardType(config.bypassProvider),
-                        imeAction = ImeAction.Next
-                    )
+                    onFpsChanged = viewModel::onVp8FpsChanged,
+                    onBatchChanged = viewModel::onVp8BatchChanged
                 )
             }
 
-            item {
-                SettingsTextField(
-                    value = config.key,
-                    onValueChange = viewModel::onPasswordChanged,
-                    label = "Encryption key",
-                    placeholder = "64 hex characters",
-                    enabled = !isSaving,
-                    isError = viewModel.keyError != null,
-                    supportingText = viewModel.keyError,
-                    leadingIcon = Icons.Rounded.Key,
-                    onClear = { viewModel.onPasswordChanged("") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+            SettingsTextField(
+                value = config.id,
+                onValueChange = viewModel::onServerChanged,
+                label = roomIdLabel(config.bypassProvider),
+                placeholder = roomIdPlaceholder(config.bypassProvider),
+                enabled = !isSaving,
+                isError = viewModel.serverError != null,
+                supportingText = viewModel.serverError,
+                leadingIcon = Icons.Rounded.MeetingRoom,
+                onClear = { viewModel.onServerChanged("") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = roomKeyboardType(config.bypassProvider),
+                    imeAction = ImeAction.Next
                 )
-            }
+            )
 
-            item {
-                SettingsTextField(
-                    value = config.dnsServer,
-                    onValueChange = viewModel::onDnsServerChanged,
-                    label = "DNS server (optional)",
-                    placeholder = "Auto, or 1.1.1.1:53",
-                    enabled = !isSaving,
-                    isError = viewModel.dnsError != null,
-                    supportingText = viewModel.dnsError,
-                    leadingIcon = Icons.Rounded.Public,
-                    onClear = { viewModel.onDnsServerChanged("") },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Uri,
-                        imeAction = ImeAction.Done
-                    )
-                )
-            }
+            SettingsTextField(
+                value = config.key,
+                onValueChange = viewModel::onPasswordChanged,
+                label = "Encryption key",
+                placeholder = "64 hex characters",
+                enabled = !isSaving,
+                isError = viewModel.keyError != null,
+                supportingText = viewModel.keyError,
+                leadingIcon = Icons.Rounded.Key,
+                onClear = { viewModel.onPasswordChanged("") },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
+            )
 
-            item {
-                PingButton(
-                    homeViewModel = homeViewModel,
-                    configGetter = { viewModel.editingConfig }
+            SettingsTextField(
+                value = config.dnsServer,
+                onValueChange = viewModel::onDnsServerChanged,
+                label = "DNS server (optional)",
+                placeholder = "Auto, or 1.1.1.1:53",
+                enabled = !isSaving,
+                isError = viewModel.dnsError != null,
+                supportingText = viewModel.dnsError,
+                leadingIcon = Icons.Rounded.Public,
+                onClear = { viewModel.onDnsServerChanged("") },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done
                 )
-            }
+            )
+
+            PingButton(
+                homeViewModel = homeViewModel,
+                configGetter = { viewModel.editingConfig }
+            )
         }
     }
 }
@@ -520,7 +506,7 @@ private fun SettingsTextField(
         value = value,
         onValueChange = onValueChange,
         label = { Text(label) },
-        placeholder = { Text(placeholder) },
+        placeholder = { Text(placeholder, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         enabled = enabled,
         isError = isError,
         singleLine = true,

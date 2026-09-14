@@ -671,38 +671,63 @@ jobs:
             exit 1
           fi
 
-          if gh release view "$OLCBOX_NIGHTLY_TAG" >/dev/null 2>&1; then
-            gh release delete "$OLCBOX_NIGHTLY_TAG" --yes --cleanup-tag
-          fi
-
-          git tag -f "$OLCBOX_NIGHTLY_TAG" "$GITHUB_SHA"
-          git push --force origin "refs/tags/$OLCBOX_NIGHTLY_TAG"
-
-          gh release create "$OLCBOX_NIGHTLY_TAG" \
-            --target "$GITHUB_SHA" \
-            --title "$OLCBOX_NIGHTLY_TITLE" \
-            --notes-file release-notes.md \
-            --prerelease \
-            --draft
-
-          # Give GitHub a moment to make the draft release available for asset uploads.
-          sleep 5
-
-          for asset in "${assets[@]}"; do
-            echo "Uploading ${asset}"
-            for attempt in 1 2 3; do
-              if gh release upload "$OLCBOX_NIGHTLY_TAG" "$asset" --clobber; then
-                break
+          # Publish a versioned archive first, then refresh the stable updater URL.
+          archive_tag="${OLCBOX_VERSION}-${OLCBOX_NIGHTLY_TAG}"
+          for release_tag in "$archive_tag" "$OLCBOX_NIGHTLY_TAG"; do
+            if gh release view "$release_tag" >/dev/null 2>&1; then
+              if [ "$release_tag" = "$archive_tag" ] && \
+                [ "$(gh release view "$release_tag" --json isDraft --jq '.isDraft')" = "false" ]; then
+                continue
               fi
+              gh release delete "$release_tag" --yes --cleanup-tag
+            fi
 
-              if [ "$attempt" -eq 3 ]; then
-                echo "Failed to upload ${asset} after ${attempt} attempts" >&2
-                exit 1
-              fi
+            git tag -f "$release_tag" "$GITHUB_SHA"
+            git push --force origin "refs/tags/$release_tag"
 
-              echo "Upload failed for ${asset}; retrying in 10 seconds" >&2
-              sleep 10
+            gh release create "$release_tag" \
+              --target "$GITHUB_SHA" \
+              --title "$OLCBOX_NIGHTLY_TITLE — $OLCBOX_VERSION" \
+              --notes-file release-notes.md \
+              --prerelease \
+              --draft
+
+            # Give GitHub a moment to make the draft release available for asset uploads.
+            sleep 5
+
+            for asset in "${assets[@]}"; do
+              echo "Uploading ${asset}"
+              for attempt in 1 2 3; do
+                if gh release upload "$release_tag" "$asset" --clobber; then
+                  break
+                fi
+
+                if [ "$attempt" -eq 3 ]; then
+                  echo "Failed to upload ${asset} after ${attempt} attempts" >&2
+                  exit 1
+                fi
+
+                echo "Upload failed for ${asset}; retrying in 10 seconds" >&2
+                sleep 10
+              done
             done
+
+            gh release edit "$release_tag" --draft=false --prerelease
           done
 
-          gh release edit "$OLCBOX_NIGHTLY_TAG" --draft=false --prerelease
+      - name: Keep the latest five versioned nightlies per channel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Match only this channel's versioned prereleases; keep stable releases and aliases.
+          gh api --paginate --slurp "repos/${GH_REPO}/releases?per_page=100" > releases.json
+          jq -r --arg channel "$OLCBOX_NIGHTLY_TAG" '
+            [ .[][] | select(.prerelease and (.draft | not))
+              | select(.tag_name | test("^[0-9]+\\.[0-9]+\\.[0-9]+-" + $channel + "$")) ]
+            | sort_by(.tag_name | split("-")[0] | split(".") | map(tonumber))
+            | reverse | .[5:][] | .tag_name
+          ' releases.json > old-nightlies.txt
+          while IFS= read -r tag; do
+            gh release delete "$tag" --yes --cleanup-tag
+          done < old-nightlies.txt
