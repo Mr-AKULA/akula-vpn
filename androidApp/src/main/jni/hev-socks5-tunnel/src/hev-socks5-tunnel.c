@@ -574,7 +574,6 @@ lwip_timer_task_fini (void)
 static int
 mapped_dns_init (void)
 {
-    HevMappedDNS *dns;
     int cache_size;
     int network;
     int netmask;
@@ -583,28 +582,13 @@ mapped_dns_init (void)
     netmask = hev_config_get_mapdns_netmask ();
     cache_size = hev_config_get_mapdns_cache_size ();
 
-    if (!cache_size)
-        return 0;
-
-    dns = hev_mapped_dns_new (network, netmask, cache_size);
-    if (!dns)
-        return -1;
-
-    hev_mapped_dns_put (dns);
-
-    return 0;
+    return hev_mapped_dns_init (network, netmask, cache_size);
 }
 
 static void
 mapped_dns_fini (void)
 {
-    HevMappedDNS *dns;
-
-    dns = hev_mapped_dns_get ();
-    if (dns) {
-        hev_object_unref (HEV_OBJECT (dns));
-        hev_mapped_dns_put (NULL);
-    }
+    hev_mapped_dns_fini ();
 }
 
 int

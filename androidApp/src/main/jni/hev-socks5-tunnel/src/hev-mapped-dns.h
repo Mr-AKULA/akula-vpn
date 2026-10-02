@@ -52,7 +52,10 @@ int hev_mapped_dns_construct (HevMappedDNS *self, int net, int mask, int max);
 HevMappedDNS *hev_mapped_dns_new (int net, int mask, int max);
 
 HevMappedDNS *hev_mapped_dns_get (void);
-void hev_mapped_dns_put (HevMappedDNS *self);
+/* Sequential tunnel lifecycle only: fini retains the bounded process cache;
+ * init reuses it when the mapping configuration has not changed. */
+int hev_mapped_dns_init (int net, int mask, int max);
+void hev_mapped_dns_fini (void);
 
 int hev_mapped_dns_handle (HevMappedDNS *self, void *req, int qlen, void *res,
                            int slen);

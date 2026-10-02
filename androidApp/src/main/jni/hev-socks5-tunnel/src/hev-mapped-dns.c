@@ -13,13 +13,15 @@
 #include <arpa/inet.h>
 
 #include <hev-compiler.h>
-#include <hev-memory-allocator.h>
 
 #include "hev-logger.h"
 
 #include "hev-mapped-dns.h"
 
 static HevMappedDNS *singleton;
+/* Own one bounded cache across tunnel runs in this process. Applications may
+ * retain synthetic addresses even after the Android VPN network is replaced. */
+static HevMappedDNS *cached;
 
 typedef struct _DNSHdr DNSHdr;
 
@@ -47,13 +49,15 @@ hev_mapped_dns_new (int net, int mask, int max)
     HevMappedDNS *self;
     int res;
 
-    self = hev_malloc0 (sizeof (HevMappedDNS) + sizeof (void *) * max);
+    /* The task allocator belongs to one tunnel thread and is torn down on
+     * stop. DNS records must remain valid when the next thread starts. */
+    self = calloc (1, sizeof (HevMappedDNS) + sizeof (void *) * max);
     if (!self)
         return NULL;
 
     res = hev_mapped_dns_construct (self, net, mask, max);
     if (res < 0) {
-        hev_free (self);
+        free (self);
         return NULL;
     }
 
@@ -68,10 +72,36 @@ hev_mapped_dns_get (void)
     return singleton;
 }
 
-void
-hev_mapped_dns_put (HevMappedDNS *self)
+int
+hev_mapped_dns_init (int net, int mask, int max)
 {
-    singleton = self;
+    if (singleton)
+        return -1;
+
+    if (cached && (cached->net != net || cached->mask != mask ||
+                   cached->max != max)) {
+        hev_object_unref (HEV_OBJECT (cached));
+        cached = NULL;
+    }
+
+    if (!max)
+        return 0;
+
+    if (!cached)
+        cached = hev_mapped_dns_new (net, mask, max);
+    if (!cached)
+        return -1;
+
+    singleton = cached;
+    return 0;
+}
+
+void
+hev_mapped_dns_fini (void)
+{
+    /* Called after sessions have stopped. Keep mappings and their LRU order,
+     * but do not expose an active DNS mapper while the tunnel is stopped. */
+    singleton = NULL;
 }
 
 static HevMappedDNSNode *
@@ -79,11 +109,15 @@ hev_mapped_dns_node_alloc (const char *name)
 {
     HevMappedDNSNode *node;
 
-    node = hev_malloc0 (sizeof (HevMappedDNSNode));
+    node = calloc (1, sizeof (HevMappedDNSNode));
     if (!node)
         return NULL;
 
     node->name = strdup (name);
+    if (!node->name) {
+        free (node);
+        return NULL;
+    }
 
     return node;
 }
@@ -92,7 +126,7 @@ static void
 hev_mapped_dns_node_free (HevMappedDNSNode *node)
 {
     free (node->name);
-    hev_free (node);
+    free (node);
 }
 
 static int
@@ -256,6 +290,9 @@ hev_mapped_dns_lookup (HevMappedDNS *self, int ip)
     HevMappedDNSNode *node;
     int idx;
 
+    if ((ip & self->mask) != self->net)
+        return NULL;
+
     idx = ip & ~self->mask;
     if (idx >= self->max)
         return NULL;
@@ -311,7 +348,7 @@ hev_mapped_dns_destruct (HevObject *base)
     }
 
     HEV_OBJECT_TYPE->destruct (base);
-    hev_free (base);
+    free (base);
 }
 
 HevObjectClass *

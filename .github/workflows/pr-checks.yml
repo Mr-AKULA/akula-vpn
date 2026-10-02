@@ -26,6 +26,10 @@ jobs:
         with:
           path: olcbox
 
+      - name: Test native DNS restart handling
+        working-directory: olcbox
+        run: make -C tests/native test SANITIZERS=address,undefined
+
       - name: Read reviewed olcrtc revision
         id: core
         shell: bash
