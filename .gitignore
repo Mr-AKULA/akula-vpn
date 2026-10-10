@@ -43,3 +43,4 @@ keystore.properties
 release-keystore.jks
 .!80165!.DS_Store
 .zed
+androidApp/src/main/assets/akula_preset.json

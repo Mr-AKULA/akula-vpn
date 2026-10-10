@@ -38,6 +38,7 @@ import mobile.Mobile
 import mobile.SocketProtector
 import org.olcbox.app.data.TUN2SOCKS_CONFIG_FILE_NAME
 import org.olcbox.app.vpn.awaitRuntimeReady
+import org.olcbox.app.akula.AkulaWake
 import org.olcbox.app.data.datasource.LocationsDataSourceImpl
 import org.olcbox.app.data.datasource.LocationsRepositoryImpl
 import org.olcbox.app.data.identity.PersistentDeviceIdentityProvider
@@ -262,7 +263,13 @@ class OlcboxVpnService : VpnService() {
         when (intent?.action) {
             OlcboxVpnActions.ACTION_STOP_VPN -> {
                 addLog("Stop VPN requested")
+                // AKULA: «отключился» — сторожу, в фоне: сервер уснёт, когда отключились все
+                val akula = lastMobileRoom.takeIf { it.isNotBlank() }?.let { AkulaWake.settings(applicationContext, it) }
                 cleanup()
+                if (akula != null) {
+                    Thread { AkulaWake.command(akula, "stop", { runCatching { protect(it) }.getOrDefault(false) }, { addLog(it) }) }
+                        .start()
+                }
                 return START_NOT_STICKY
             }
 
@@ -598,8 +605,17 @@ class OlcboxVpnService : VpnService() {
             )
             lastMobileProvider = config.bypassProvider
             lastMobileRoom = config.id
+            // AKULA: разбудить сервер письмом сторожу (сокет почты — мимо VPN) и ждать его дольше:
+            // сервер заходит в звонок за 1–2 минуты после письма
+            val akula = AkulaWake.settings(applicationContext, config.id)
+            val woke = akula != null && withContext(Dispatchers.IO) {
+                addLog("AKULA: будим сервер письмом")
+                AkulaWake.command(akula, "start", { protect(it) }, { addLog(it) })
+            }
             olcRtcRuntime.start()
-            awaitRuntimeReady(MOBILE_READY_TIMEOUT_MS) { olcRtcRuntime.waitReady(it) }
+            awaitRuntimeReady(if (woke) AKULA_WAKE_READY_TIMEOUT_MS else MOBILE_READY_TIMEOUT_MS) {
+                olcRtcRuntime.waitReady(it)
+            }
             if (requestedGeneration != generation) {
                 addLog("olcRTC start superseded")
                 return false
@@ -1693,6 +1709,7 @@ class OlcboxVpnService : VpnService() {
         private const val LOCAL_SOCKS_PORT_BASE = 10818
         private const val LOCAL_SOCKS_PORT_MAX = 10858
         private const val MOBILE_READY_TIMEOUT_MS = 60_000L
+        private const val AKULA_WAKE_READY_TIMEOUT_MS = 180_000L
         private const val MOBILE_STOP_TIMEOUT_MS = 5_000L
         private const val PREVIOUS_STOP_WAIT_MS = 12_000L
         private const val JITSI_RESTART_SETTLE_MS = 2_000L

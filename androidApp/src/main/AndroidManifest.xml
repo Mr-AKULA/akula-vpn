@@ -31,7 +31,7 @@
         android:name=".App"
         android:banner="@mipmap/ic_launcher"
         android:icon="@mipmap/ic_launcher"
-        android:label="Olcbox"
+        android:label="AKULA VPN"
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="true">

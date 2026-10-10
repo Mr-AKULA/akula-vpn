@@ -40,13 +40,13 @@ require(androidAbiFilters.isNotEmpty()) {
 android {
     namespace = "org.olcbox.app"
     compileSdk = 37
-    ndkVersion = "28.2.13676358"
+    ndkVersion = "27.1.12297006"
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 24
         targetSdk = 37
 
-        applicationId = "org.olcbox.app"
+        applicationId = "ru.akula.vpn"
         versionCode = olcboxVersionCode.get()
         versionName = olcboxVersion.get()
 

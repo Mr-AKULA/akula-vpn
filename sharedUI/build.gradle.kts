@@ -106,7 +106,7 @@ kotlin {
     android {
         namespace = "org.olcbox.app.sharedui"
         compileSdk = 37
-        minSdk = 23
+        minSdk = 24
 
         compilerOptions {
             jvmTarget.set(JvmTarget.JVM_17)

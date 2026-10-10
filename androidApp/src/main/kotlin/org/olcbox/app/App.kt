@@ -11,5 +11,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         appContext = applicationContext
+        // AKULA: вшитое подключение и пробуждение сервера (один раз на версию настроек; без сети — быстро)
+        org.olcbox.app.akula.AkulaPreset.seed(applicationContext)
     }
 }
