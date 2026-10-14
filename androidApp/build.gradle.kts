@@ -8,7 +8,10 @@ plugins {
 }
 
 val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("keystore.properties")
+// Ключ подписи AKULA VPN — в общей папке секретов (не в репозитории); старое место — запасное
+val keystorePropertiesFile = File(System.getenv("AKULA_KEYSTORE_PROPERTIES")
+    ?: "${System.getProperty("user.home")}/.akula-secrets/android-signing/akula-vpn-keystore.properties")
+    .takeIf { it.exists() } ?: rootProject.file("keystore.properties")
 
 if (keystorePropertiesFile.exists()) {
     FileInputStream(keystorePropertiesFile).use { input ->
