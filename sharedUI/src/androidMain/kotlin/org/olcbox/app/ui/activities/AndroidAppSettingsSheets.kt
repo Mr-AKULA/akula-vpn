@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.activities
 
+import org.olcbox.app.ui.i18n.tr
+
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
@@ -47,6 +49,7 @@ import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
@@ -102,6 +105,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.datastore.preferences.core.edit
+import org.olcbox.app.vpn.data.vpnPrefDataStore
+import androidx.compose.material.icons.outlined.Language
 import kotlinx.coroutines.withContext
 import org.olcbox.app.CurrentAppInfo
 import org.olcbox.app.data.model.formatSubscriptionRefreshInterval
@@ -127,7 +133,7 @@ internal fun AppSettingsSheet(
     splitTunnelSettings: AndroidSplitTunnelSettings,
     installedApps: List<AndroidInstalledApp>,
     logs: List<String>,
-    dynamicThemeEnabled: Boolean,
+    autoFailoverEnabled: Boolean,
     updateSettings: AppUpdateSettings,
     updateStatusText: String?,
     updateDownloadProgress: Float?,
@@ -144,7 +150,7 @@ internal fun AppSettingsSheet(
     onSubscriptionRefreshClick: (String, () -> Unit) -> Unit,
     onSubscriptionRefreshIntervalChanged: (String, Long?) -> Unit,
     onSubscriptionDeleteClick: (String) -> Unit,
-    onDynamicThemeChanged: (Boolean) -> Unit,
+    onAutoFailoverChanged: (Boolean) -> Unit,
     onModeSelected: (AndroidConnectionMode) -> Unit,
     onProxySettingsSaved: (String, String, String, Int) -> Unit,
     onProxyPasswordRegenerated: () -> Unit,
@@ -222,11 +228,11 @@ internal fun AppSettingsSheet(
             when (currentRoute) {
                 AppSettingsRoute.Hub -> AppSettingsHubContent(
                     selectedMode = selectedMode,
-                    dynamicThemeEnabled = dynamicThemeEnabled,
+                    autoFailoverEnabled = autoFailoverEnabled,
                     updateSettings = updateSettings,
                     subscriptionsCount = subscriptions.size,
                     enabled = enabled,
-                    onDynamicThemeChanged = onDynamicThemeChanged,
+                    onAutoFailoverChanged = onAutoFailoverChanged,
                     onConnectionSettingsClick = { route = AppSettingsRoute.ConnectionSettings },
                     onSubscriptionsSharingClick = { route = AppSettingsRoute.SubscriptionsSharing },
                     onUpdatesClick = { route = AppSettingsRoute.Updates },
@@ -355,11 +361,11 @@ internal enum class AppSettingsInitialRoute {
 @Composable
 private fun AppSettingsHubContent(
     selectedMode: AndroidConnectionMode,
-    dynamicThemeEnabled: Boolean,
+    autoFailoverEnabled: Boolean,
     updateSettings: AppUpdateSettings,
     subscriptionsCount: Int,
     enabled: Boolean,
-    onDynamicThemeChanged: (Boolean) -> Unit,
+    onAutoFailoverChanged: (Boolean) -> Unit,
     onConnectionSettingsClick: () -> Unit,
     onSubscriptionsSharingClick: () -> Unit,
     onUpdatesClick: () -> Unit,
@@ -374,35 +380,61 @@ private fun AppSettingsHubContent(
     ) {
         SettingsSheetHeader(
             icon = Icons.Outlined.Settings,
-            title = "Application Settings",
+            title = tr("Настройки", "Settings"),
             subtitle = selectedMode.shortLabel()
         )
 
         Spacer(Modifier.height(8.dp))
 
         SettingsSwitchRow(
-            title = "Dynamic Theme",
-            value = if (dynamicThemeEnabled) {
-                "Using Android system colors"
+            // Павел 16.10.2026: не подключилось за 5 секунд — пробуем следующее подключение из списка
+            title = tr("Автопереключение серверов", "Server auto-switch"),
+            value = if (autoFailoverEnabled) {
+                tr("Сервер не ответил — сами пробуем следующее", "Server didn't answer — trying the next one")
             } else {
-                "Using Olcbox colors"
+                tr("Выключено — только выбранное подключение", "Off — only the selected connection")
             },
-            icon = Icons.Outlined.Palette,
-            checked = dynamicThemeEnabled,
+            icon = Icons.Outlined.SwapHoriz,
+            checked = autoFailoverEnabled,
             enabled = true,
-            onCheckedChange = onDynamicThemeChanged
+            onCheckedChange = onAutoFailoverChanged
+        )
+
+        // Язык (Павел 16.10.2026): как в системе → русский → English, по нажатию; сразу на всех экранах
+        val langContext = androidx.compose.ui.platform.LocalContext.current
+        val langScope = androidx.compose.runtime.rememberCoroutineScope()
+        val langMode = org.olcbox.app.ui.i18n.AppLang.mode.value
+        SettingsNavigationRow(
+            title = tr("Язык", "Language"),
+            value = when (langMode) {
+                org.olcbox.app.ui.i18n.LangMode.System -> tr("Как в системе", "System default")
+                org.olcbox.app.ui.i18n.LangMode.Russian -> "Русский"
+                org.olcbox.app.ui.i18n.LangMode.English -> "English"
+            },
+            icon = Icons.Outlined.Language,
+            enabled = true,
+            showChevron = false,
+            onClick = {
+                val next = org.olcbox.app.ui.i18n.LangMode.entries.let { it[(it.indexOf(langMode) + 1) % it.size] }
+                org.olcbox.app.ui.i18n.AppLang.mode.value = next
+                langScope.launch {
+                    langContext.applicationContext.vpnPrefDataStore.edit {
+                        it[org.olcbox.app.vpn.data.KEY_APP_LANGUAGE] = next.value
+                    }
+                }
+            }
         )
 
         SettingsNavigationRow(
-            title = "Connection Settings",
-            value = "Mode, SOCKS5 proxy, and app routing",
+            title = tr("Подключение", "Connection"),
+            value = tr("Режим, прокси и какие приложения через VPN", "Mode, proxy and which apps use VPN"),
             icon = selectedMode.icon(),
             enabled = enabled,
             onClick = onConnectionSettingsClick
         )
 
         SettingsNavigationRow(
-            title = "Subscriptions & Sharing",
+            title = tr("Подписки", "Subscriptions"),
             value = subscriptionsCount.subscriptionSummary(),
             icon = Icons.Outlined.Share,
             enabled = true,
@@ -410,7 +442,7 @@ private fun AppSettingsHubContent(
         )
 
         SettingsNavigationRow(
-            title = "Update Settings",
+            title = tr("Обновления", "Updates"),
             value = "Nightly · every ${updateSettings.intervalHours}h",
             icon = Icons.Outlined.Refresh,
             enabled = true,
@@ -418,8 +450,8 @@ private fun AppSettingsHubContent(
         )
 
         SettingsNavigationRow(
-            title = "Application Logs",
-            value = "Diagnostics and export",
+            title = tr("Журнал", "Logs"),
+            value = tr("Для поддержки: что происходило", "For support: what happened"),
             icon = Icons.Outlined.History,
             enabled = true,
             onClick = onApplicationLogsClick
@@ -459,7 +491,7 @@ private fun ConnectionSettingsContent(
             .padding(top = 16.dp, bottom = 32.dp)
     ) {
         SettingsDetailHeader(
-            title = "Connection Settings",
+            title = tr("Подключение", "Connection"),
             subtitle = selectedMode.settingsSummary(),
             onBack = onBack
         )
@@ -468,21 +500,21 @@ private fun ConnectionSettingsContent(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SettingsNavigationRow(
-                title = "Connection Mode",
+                title = tr("Режим подключения", "Connection Mode"),
                 value = selectedMode.settingsSummary(),
                 icon = selectedMode.icon(),
                 enabled = enabled,
                 onClick = onConnectionModeClick
             )
             SettingsNavigationRow(
-                title = "SOCKS5 Proxy",
+                title = tr("SOCKS5-прокси", "SOCKS5 Proxy"),
                 value = "${proxySettings.host}:${proxySettings.port}",
                 icon = Icons.Rounded.Public,
                 enabled = enabled,
                 onClick = onProxySettingsClick
             )
             SettingsNavigationRow(
-                title = "Split Tunneling",
+                title = tr("Какие приложения через VPN", "Split Tunneling"),
                 value = splitTunnelSettings.settingsSummary(),
                 icon = Icons.Outlined.Apps,
                 enabled = enabled,
@@ -508,7 +540,7 @@ private fun ConnectionModeSettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SettingsDetailHeader(
-            title = "Connection Mode",
+            title = tr("Режим подключения", "Connection Mode"),
             subtitle = selectedMode.subtitle(),
             onBack = onBack
         )
@@ -563,7 +595,7 @@ private fun SocksProxySettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SettingsDetailHeader(
-            title = "SOCKS5 Proxy",
+            title = tr("SOCKS5-прокси", "SOCKS5 Proxy"),
             subtitle = proxySettings.host,
             onBack = onBack
         )
@@ -625,7 +657,7 @@ private fun SplitTunnelingSettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SettingsDetailHeader(
-            title = "Split Tunneling",
+            title = tr("Какие приложения через VPN", "Split Tunneling"),
             subtitle = settings.mode.statusTitle(settings),
             onBack = onBack
         )
@@ -661,7 +693,7 @@ private fun SplitTunnelingSettingsContent(
         when (settings.mode) {
             AndroidSplitTunnelMode.AllApps -> SplitTunnelNoListCard()
             AndroidSplitTunnelMode.ProxySelected -> SplitTunnelAppListAction(
-                title = "Apps Using Olcbox",
+                title = tr("Приложения через AKULA VPN", "Apps using AKULA VPN"),
                 value = settings.proxyPackages.activeListValue(requireSelection = true),
                 icon = Icons.Outlined.Shield,
                 enabled = enabled,
@@ -669,7 +701,7 @@ private fun SplitTunnelingSettingsContent(
             )
 
             AndroidSplitTunnelMode.BypassSelected -> SplitTunnelAppListAction(
-                title = "Bypassed Apps",
+                title = tr("Приложения мимо VPN", "Bypassed Apps"),
                 value = settings.bypassPackages.activeListValue(requireSelection = false),
                 icon = Icons.Outlined.Apps,
                 enabled = enabled,
@@ -845,7 +877,7 @@ private fun SplitTunnelingAppListContent(
                     contentDescription = null
                 )
             },
-            label = { Text("Search apps") },
+            label = { Text(tr("Поиск приложений", "Search apps")) },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
         )
 
@@ -853,7 +885,7 @@ private fun SplitTunnelingAppListContent(
             Spacer(Modifier.height(10.dp))
 
             SettingsSwitchRow(
-                title = "Show system apps",
+                title = tr("Показать системные приложения", "Show system apps"),
                 value = showSystemAppsValue(),
                 icon = Icons.Outlined.Settings,
                 checked = showSystemApps,
@@ -1013,7 +1045,7 @@ private fun ApplicationLogsSettingsContent(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SettingsDetailHeader(
-                title = "Application Logs",
+                title = tr("Журнал", "Logs"),
                 subtitle = if (logs.isEmpty()) "No entries" else "${logs.size} entries",
                 onBack = onBack,
                 modifier = Modifier.weight(1f)
@@ -1023,13 +1055,13 @@ private fun ApplicationLogsSettingsContent(
                 enabled = logs.isNotEmpty(),
                 onClick = onSaveClick
             ) {
-                Text("Save")
+                Text(tr("Сохранить", "Save"))
             }
             TextButton(
                 enabled = logs.isNotEmpty(),
                 onClick = onShareClick
             ) {
-                Text("Share")
+                Text(tr("Поделиться", "Share"))
             }
         }
 
@@ -1071,7 +1103,7 @@ private fun UpdatesSettingsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SettingsDetailHeader(
-            title = "Updates",
+            title = tr("Обновления", "Updates"),
             subtitle = "Current version ${CurrentAppInfo.value.version}",
             onBack = onBack
         )
@@ -1103,7 +1135,7 @@ private fun UpdatesSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "Last check",
+                    text = tr("Последняя проверка", "Last check"),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -1137,7 +1169,7 @@ private fun UpdatesSettingsContent(
                 .fillMaxWidth()
                 .height(52.dp)
         ) {
-            Text("Check now")
+            Text(tr("Проверить сейчас", "Check now"))
         }
     }
 }
@@ -1157,7 +1189,7 @@ private fun SubscriptionsSharingSettingsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SettingsDetailHeader(
-            title = "Subscriptions",
+            title = tr("Подписки", "Subscriptions"),
             subtitle = subscriptions.size.subscriptionSummary(),
             onBack = onBack
         )
@@ -1173,8 +1205,8 @@ private fun SubscriptionsSharingSettingsContent(
         ) {
             if (subscriptions.isEmpty()) {
                 EmptyAppsState(
-                    title = "No subscriptions",
-                    subtitle = "Import a subscription from the home screen to manage it here."
+                    title = tr("Подписок нет", "No subscriptions"),
+                    subtitle = tr("Добавьте подписку на главном экране — здесь можно будет ею управлять.", "Import a subscription from the home screen to manage it here.")
                 )
             } else {
                 subscriptions.forEach { item ->
@@ -1188,8 +1220,8 @@ private fun SubscriptionsSharingSettingsContent(
             Spacer(Modifier.height(6.dp))
             SettingsSectionLabel("Backup & export")
             SettingsNavigationRow(
-                title = "Export full configuration",
-                value = "Copy all locations to clipboard",
+                title = tr("Выгрузить все настройки", "Export full configuration"),
+                value = tr("Скопировать все подключения", "Copy all locations to clipboard"),
                 icon = Icons.Outlined.ContentPaste,
                 enabled = true,
                 showChevron = false,
@@ -1227,7 +1259,7 @@ private fun SubscriptionDetailsSettingsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SettingsDetailHeader(
-            title = "Subscription",
+            title = tr("Подписка", "Subscription"),
             subtitle = item.name,
             onBack = onBack
         )
@@ -1280,11 +1312,11 @@ private fun SubscriptionDetailsSettingsContent(
 
         AlertDialog(
             onDismissRequest = { showRefreshDialog = false },
-            title = { Text("Refresh schedule") },
+            title = { Text(tr(tr("Как часто обновлять", "Refresh rate"), "Refresh schedule")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Choose how often this subscription should be checked.",
+                        text = tr("Как часто проверять эту подписку на обновления.", "Choose how often this subscription should be checked."),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1309,8 +1341,8 @@ private fun SubscriptionDetailsSettingsContent(
                                 .filter { it.isDigit() || it in "smhd" }
                                 .take(8)
                         },
-                        label = { Text("Custom interval") },
-                        placeholder = { Text("Auto") },
+                        label = { Text(tr("Свой интервал", "Custom interval")) },
+                        placeholder = { Text(tr("Авто", "Auto")) },
                         supportingText = {
                             Text(
                                 if (hasError) {
@@ -1336,12 +1368,12 @@ private fun SubscriptionDetailsSettingsContent(
                         showRefreshDialog = false
                     }
                 ) {
-                    Text("Save")
+                    Text(tr("Сохранить", "Save"))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRefreshDialog = false }) {
-                    Text("Cancel")
+                    Text(tr("Отмена", "Cancel"))
                 }
             }
         )
@@ -1350,7 +1382,7 @@ private fun SubscriptionDetailsSettingsContent(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete subscription?") },
+            title = { Text(tr("Удалить подписку?", "Delete subscription?")) },
             text = {
                 Text(
                     "This will delete “${item.name}” and " +
@@ -1365,12 +1397,12 @@ private fun SubscriptionDetailsSettingsContent(
                         onDeleteClick()
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(tr("Удалить", "Delete"), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
+                    Text(tr("Отмена", "Cancel"))
                 }
             }
         )
@@ -1444,13 +1476,13 @@ private fun SubscriptionStatusCard(item: SubscriptionShareItem) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             SubscriptionStatusMetric(
-                label = "Locations",
+                label = tr("Подключения", "Locations"),
                 value = item.locationCount.toString(),
                 modifier = Modifier.weight(1f)
             )
             SubscriptionStatusDivider()
             SubscriptionStatusMetric(
-                label = "Updated",
+                label = tr("Обновлено", "Updated"),
                 value = item.lastRefreshAtEpochMs?.relativeSubscriptionTime() ?: "Not yet",
                 modifier = Modifier
                     .weight(1f)
@@ -1458,7 +1490,7 @@ private fun SubscriptionStatusCard(item: SubscriptionShareItem) {
             )
             SubscriptionStatusDivider()
             SubscriptionStatusMetric(
-                label = "Next",
+                label = tr("Далее", "Next"),
                 value = item.nextRefreshAtEpochMs?.relativeSubscriptionTime()
                     ?: "On app start",
                 modifier = Modifier
@@ -1637,7 +1669,7 @@ private fun SubscriptionSourceCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Subscription link",
+                    text = tr("Ссылка-подписка", "Subscription link"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     maxLines = 1
@@ -1686,7 +1718,7 @@ private fun SubscriptionDangerAction(
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Delete subscription",
+                    text = tr("Удалить подписку", "Delete subscription"),
                     color = MaterialTheme.colorScheme.error,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
@@ -2240,7 +2272,7 @@ private fun SplitTunnelNoListCard() {
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "No app list needed",
+                    text = tr("Список приложений не нужен", "No app list needed"),
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -2248,7 +2280,7 @@ private fun SplitTunnelNoListCard() {
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Every app follows the same TUN route",
+                    text = tr("Все приложения идут через VPN", "Every app follows the same TUN route"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
@@ -2312,7 +2344,7 @@ private fun SocksProxySettingsForm(
             SocksProxyTextField(
                 value = host,
                 onValueChange = onHostChanged,
-                label = "Listen address",
+                label = tr("Адрес прослушивания", "Listen address"),
                 placeholder = AndroidSocksProxySettings.DEFAULT_HOST,
                 enabled = enabled,
                 isError = !hostValid,
@@ -2329,7 +2361,7 @@ private fun SocksProxySettingsForm(
             SocksProxyTextField(
                 value = port,
                 onValueChange = onPortChanged,
-                label = "Port",
+                label = tr("Порт", "Port"),
                 placeholder = AndroidSocksProxySettings.DEFAULT_PORT.toString(),
                 enabled = enabled,
                 isError = port.isBlank() || !portValid,
@@ -2354,7 +2386,7 @@ private fun SocksProxySettingsForm(
             SocksProxyTextField(
                 value = username,
                 onValueChange = onUsernameChanged,
-                label = "Username",
+                label = tr("Логин", "Username"),
                 placeholder = "olcbox...",
                 enabled = enabled,
                 isError = username.isBlank(),
@@ -2371,7 +2403,7 @@ private fun SocksProxySettingsForm(
             SocksProxyTextField(
                 value = password,
                 onValueChange = onPasswordChanged,
-                label = "Password",
+                label = tr("Пароль", "Password"),
                 placeholder = "Generated password",
                 enabled = enabled,
                 isError = password.isBlank(),
@@ -2395,7 +2427,7 @@ private fun SocksProxySettingsForm(
                 enabled = enabled,
                 onClick = onRegeneratePassword
             ) {
-                Text("Regenerate password")
+                Text(tr("Новый пароль", "Regenerate password"))
             }
 
             Spacer(Modifier.width(8.dp))
@@ -2406,7 +2438,7 @@ private fun SocksProxySettingsForm(
             ) {
                 Icon(Icons.Rounded.Check, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Save")
+                Text(tr("Сохранить", "Save"))
             }
         }
     }
@@ -2709,7 +2741,7 @@ private fun AndroidConnectionMode.label(): String {
 
 private fun Int.subscriptionSummary(): String {
     return when (this) {
-        0 -> "No subscriptions"
+        0 -> tr("Подписок нет", "No subscriptions")
         1 -> "1 subscription"
         else -> "$this subscriptions"
     }

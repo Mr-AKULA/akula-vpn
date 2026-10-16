@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.locations
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -79,7 +81,7 @@ fun LocationSettingsTopBar(
     onShare: () -> Unit
 ) {
     TopAppBar(
-        title = { Text("Location settings") },
+        title = { Text(tr("Настройки подключения", "Location settings")) },
         navigationIcon = {
             IconButton(onClick = onBack) {
                 Icon(
@@ -175,7 +177,7 @@ fun LocationSettingsScreen(
             SettingsTextField(
                 value = name,
                 onValueChange = viewModel::onNameChanged,
-                label = "Name",
+                label = tr("Название", "Name"),
                 placeholder = "Location name",
                 enabled = !isSaving,
                 isError = viewModel.nameError != null,
@@ -238,7 +240,7 @@ fun LocationSettingsScreen(
             SettingsTextField(
                 value = config.key,
                 onValueChange = viewModel::onPasswordChanged,
-                label = "Encryption key",
+                label = tr("Ключ шифрования", "Encryption key"),
                 placeholder = "64 hex characters",
                 enabled = !isSaving,
                 isError = viewModel.keyError != null,
@@ -252,7 +254,7 @@ fun LocationSettingsScreen(
             SettingsTextField(
                 value = config.dnsServer,
                 onValueChange = viewModel::onDnsServerChanged,
-                label = "DNS server (optional)",
+                label = tr("DNS-сервер (необязательно)", "DNS server (optional)"),
                 placeholder = "Auto, or 1.1.1.1:53",
                 enabled = !isSaving,
                 isError = viewModel.dnsError != null,
@@ -311,7 +313,7 @@ private fun ConnectionTypePicker(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        SectionTitle(title = "Connection type")
+        SectionTitle(title = tr("Тип подключения", "Connection type"))
 
         SingleChoiceSegmentedButtonRow(
             modifier = Modifier.fillMaxWidth()
@@ -360,7 +362,7 @@ private fun ProviderPicker(
         .filterNot { it == LocationConfig.PROVIDER_JITSI }
 
     SettingsDropdown(
-        label = "Service",
+        label = tr("Сервис", "Service"),
         selectedValue = selected,
         options = options,
         enabled = enabled,
@@ -381,7 +383,7 @@ private fun TransportPicker(
     val options = LocationConfig.supportedTransportsForProvider(provider)
 
     SettingsDropdown(
-        label = "Transport",
+        label = tr("Способ передачи", "Transport"),
         selectedValue = selected,
         options = options,
         enabled = enabled,
@@ -462,8 +464,8 @@ private fun Vp8OptionsCard(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         SectionTitle(
-            title = "VP8 options",
-            subtitle = "Fine-tune stream performance"
+            title = tr("Настройки видеопотока", "VP8 options"),
+            subtitle = tr("Тонкая настройка видеопотока", "Fine-tune stream performance")
         )
 
         Row(
@@ -593,7 +595,7 @@ private fun ActionsBar(
             } else {
                 Icon(Icons.Rounded.Check, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Save", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text(tr("Сохранить", "Save"), fontSize = 16.sp, fontWeight = FontWeight.Medium)
             }
         }
     }

@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutLinearInEasing
@@ -303,36 +305,36 @@ private fun SharedSettingsHubContent(
     ) {
         SharedSettingsHeader(
             icon = Icons.Outlined.Settings,
-            title = "Application Settings",
+            title = tr("Настройки", "Settings"),
             subtitle = "SOCKS"
         )
 
         Spacer(Modifier.height(8.dp))
 
         SharedNavigationRow(
-            title = "Connection Settings",
-            value = "Mode and SOCKS5 proxy",
+            title = tr("Подключение", "Connection"),
+            value = tr("Режим и SOCKS5-прокси", "Mode and SOCKS5 proxy"),
             icon = Icons.Rounded.Public,
             onClick = onConnectionClick
         )
 
         SharedNavigationRow(
-            title = "Subscriptions & Sharing",
+            title = tr("Подписки", "Subscriptions"),
             value = subscriptionsCount.subscriptionSummary(),
             icon = Icons.Outlined.Share,
             onClick = onSubscriptionsClick
         )
 
         SharedNavigationRow(
-            title = "Update Settings",
+            title = tr("Обновления", "Updates"),
             value = "Nightly · every ${updateSettings.intervalHours}h",
             icon = Icons.Outlined.Refresh,
             onClick = onUpdatesClick
         )
 
         SharedNavigationRow(
-            title = "Application Logs",
-            value = "Diagnostics and export",
+            title = tr("Журнал", "Logs"),
+            value = tr("Для поддержки: что происходило", "For support: what happened"),
             icon = Icons.Outlined.History,
             onClick = onLogsClick
         )
@@ -370,7 +372,7 @@ private fun SharedConnectionSettingsContent(
             .padding(top = 16.dp, bottom = 32.dp)
     ) {
         SharedDetailHeader(
-            title = "Connection Settings",
+            title = tr("Подключение", "Connection"),
             subtitle = summary,
             onBack = onBack
         )
@@ -379,7 +381,7 @@ private fun SharedConnectionSettingsContent(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SharedNavigationRow(
-                title = "Connection Mode",
+                title = tr("Режим подключения", "Connection Mode"),
                 value = routingModeTitle,
                 icon = Icons.Rounded.Public,
                 onClick = onConnectionModeClick
@@ -387,7 +389,7 @@ private fun SharedConnectionSettingsContent(
 
             if (socksProxySettings != null) {
                 SharedNavigationRow(
-                    title = "SOCKS5 Proxy",
+                    title = tr("SOCKS5-прокси", "SOCKS5 Proxy"),
                     value = "${socksProxySettings.host}:${socksProxySettings.port}",
                     icon = Icons.Rounded.Public,
                     onClick = onSocksProxyClick
@@ -417,7 +419,7 @@ private fun SharedConnectionModeSettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SharedDetailHeader(
-            title = "Connection Mode",
+            title = tr("Режим подключения", "Connection Mode"),
             subtitle = options.firstOrNull { it.id == selectedId }?.title
                 ?: "Local SOCKS5 proxy",
             onBack = onBack
@@ -471,7 +473,7 @@ private fun SharedSocksProxySettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SharedDetailHeader(
-            title = "SOCKS5 Proxy",
+            title = tr("SOCKS5-прокси", "SOCKS5 Proxy"),
             subtitle = settings.host,
             onBack = onBack
         )
@@ -493,7 +495,7 @@ private fun SharedSocksProxySettingsContent(
                             .replace("\n", "")
                             .trim()
                     },
-                    label = "Listen address",
+                    label = tr("Адрес прослушивания", "Listen address"),
                     placeholder = "127.0.0.1",
                     enabled = false,
                     isError = !hostValid,
@@ -507,7 +509,7 @@ private fun SharedSocksProxySettingsContent(
                     onValueChange = { value ->
                         editedPort = value.filter { it.isDigit() }.take(5)
                     },
-                    label = "Port",
+                    label = tr("Порт", "Port"),
                     placeholder = ApplicationSocksProxySettings.DEFAULT_PORT.toString(),
                     enabled = true,
                     isError = editedPort.isBlank() || !portValid,
@@ -532,7 +534,7 @@ private fun SharedSocksProxySettingsContent(
                 SharedSocksProxyTextField(
                     value = editedUsername,
                     onValueChange = { editedUsername = it.take(ApplicationSocksProxySettings.MAX_CREDENTIAL_LENGTH) },
-                    label = "Username",
+                    label = tr("Логин", "Username"),
                     placeholder = "olcbox...",
                     enabled = true,
                     isError = editedUsername.isBlank(),
@@ -548,7 +550,7 @@ private fun SharedSocksProxySettingsContent(
                 SharedSocksProxyTextField(
                     value = editedPassword,
                     onValueChange = { editedPassword = it.take(ApplicationSocksProxySettings.MAX_CREDENTIAL_LENGTH) },
-                    label = "Password",
+                    label = tr("Пароль", "Password"),
                     placeholder = "Generated password",
                     enabled = true,
                     isError = editedPassword.isBlank(),
@@ -569,7 +571,7 @@ private fun SharedSocksProxySettingsContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = onProxyPasswordRegenerated) {
-                    Text("Regenerate password")
+                    Text(tr("Новый пароль", "Regenerate password"))
                 }
                 Spacer(Modifier.width(8.dp))
                 Button(
@@ -584,7 +586,7 @@ private fun SharedSocksProxySettingsContent(
                 ) {
                     Icon(Icons.Rounded.Check, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Save")
+                    Text(tr("Сохранить", "Save"))
                 }
             }
         }
@@ -637,7 +639,7 @@ private fun SharedUpdatesSettingsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SharedDetailHeader(
-            title = "Updates",
+            title = tr("Обновления", "Updates"),
             subtitle = "Current version ${CurrentAppInfo.value.version}",
             onBack = onBack
         )
@@ -669,7 +671,7 @@ private fun SharedUpdatesSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
-                    text = "Last check",
+                    text = tr("Последняя проверка", "Last check"),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -703,7 +705,7 @@ private fun SharedUpdatesSettingsContent(
                 .fillMaxWidth()
                 .height(52.dp)
         ) {
-            Text("Check now")
+            Text(tr("Проверить сейчас", "Check now"))
         }
     }
 }
@@ -723,7 +725,7 @@ private fun SharedSubscriptionsSettingsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SharedDetailHeader(
-            title = "Subscriptions",
+            title = tr("Подписки", "Subscriptions"),
             subtitle = subscriptions.size.subscriptionSummary(),
             onBack = onBack
         )
@@ -739,8 +741,8 @@ private fun SharedSubscriptionsSettingsContent(
         ) {
             if (subscriptions.isEmpty()) {
                 SharedEmptyState(
-                    title = "No subscriptions",
-                    subtitle = "Import a subscription from the home screen to manage it here."
+                    title = tr("Подписок нет", "No subscriptions"),
+                    subtitle = tr("Добавьте подписку на главном экране — здесь можно будет ею управлять.", "Import a subscription from the home screen to manage it here.")
                 )
             } else {
                 subscriptions.forEach { item ->
@@ -754,8 +756,8 @@ private fun SharedSubscriptionsSettingsContent(
             Spacer(Modifier.height(6.dp))
             SharedSectionLabel("Backup & export")
             SharedNavigationRow(
-                title = "Export full configuration",
-                value = "Copy all locations to clipboard",
+                title = tr("Выгрузить все настройки", "Export full configuration"),
+                value = tr("Скопировать все подключения", "Copy all locations to clipboard"),
                 icon = Icons.Outlined.ContentPaste,
                 showChevron = false,
                 onClick = onCopyConfigClick
@@ -792,7 +794,7 @@ private fun SharedSubscriptionDetailsContent(
             .padding(top = 16.dp, bottom = 12.dp)
     ) {
         SharedDetailHeader(
-            title = "Subscription",
+            title = tr("Подписка", "Subscription"),
             subtitle = item.name,
             onBack = onBack
         )
@@ -845,11 +847,11 @@ private fun SharedSubscriptionDetailsContent(
 
         AlertDialog(
             onDismissRequest = { showRefreshDialog = false },
-            title = { Text("Refresh schedule") },
+            title = { Text(tr(tr("Как часто обновлять", "Refresh rate"), "Refresh schedule")) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Choose how often this subscription should be checked.",
+                        text = tr("Как часто проверять эту подписку на обновления.", "Choose how often this subscription should be checked."),
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -874,8 +876,8 @@ private fun SharedSubscriptionDetailsContent(
                                 .filter { it.isDigit() || it in "smhd" }
                                 .take(8)
                         },
-                        label = { Text("Custom interval") },
-                        placeholder = { Text("Auto") },
+                        label = { Text(tr("Свой интервал", "Custom interval")) },
+                        placeholder = { Text(tr("Авто", "Auto")) },
                         supportingText = {
                             Text(
                                 if (hasError) {
@@ -901,12 +903,12 @@ private fun SharedSubscriptionDetailsContent(
                         showRefreshDialog = false
                     }
                 ) {
-                    Text("Save")
+                    Text(tr("Сохранить", "Save"))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showRefreshDialog = false }) {
-                    Text("Cancel")
+                    Text(tr("Отмена", "Cancel"))
                 }
             }
         )
@@ -915,7 +917,7 @@ private fun SharedSubscriptionDetailsContent(
     if (showDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete subscription?") },
+            title = { Text(tr("Удалить подписку?", "Delete subscription?")) },
             text = {
                 Text(
                     "This will delete “${item.name}” and " +
@@ -930,12 +932,12 @@ private fun SharedSubscriptionDetailsContent(
                         onDeleteClick()
                     }
                 ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                    Text(tr("Удалить", "Delete"), color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) {
-                    Text("Cancel")
+                    Text(tr("Отмена", "Cancel"))
                 }
             }
         )
@@ -958,7 +960,7 @@ private fun SharedLogsSettingsContent(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SharedDetailHeader(
-                title = "Application Logs",
+                title = tr("Журнал", "Logs"),
                 subtitle = if (logs.isEmpty()) "No entries" else "${logs.size} entries",
                 onBack = onBack,
                 modifier = Modifier.weight(1f)
@@ -968,13 +970,13 @@ private fun SharedLogsSettingsContent(
                 enabled = logs.isNotEmpty(),
                 onClick = onSaveClick
             ) {
-                Text("Save")
+                Text(tr("Сохранить", "Save"))
             }
             TextButton(
                 enabled = logs.isNotEmpty(),
                 onClick = onShareClick
             ) {
-                Text("Share")
+                Text(tr("Поделиться", "Share"))
             }
         }
 
@@ -1028,10 +1030,10 @@ private fun SharedUpdateOfferCard(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TextButton(onClick = onLater) {
-                    Text("Later")
+                    Text(tr("Позже", "Later"))
                 }
                 Button(onClick = onDownload) {
-                    Text("Download")
+                    Text(tr("Скачать", "Download"))
                 }
             }
         }
@@ -1105,13 +1107,13 @@ private fun SharedSubscriptionStatusCard(item: SubscriptionShareItem) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             SharedStatusMetric(
-                label = "Locations",
+                label = tr("Подключения", "Locations"),
                 value = item.locationCount.toString(),
                 modifier = Modifier.weight(1f)
             )
             SharedStatusDivider()
             SharedStatusMetric(
-                label = "Updated",
+                label = tr("Обновлено", "Updated"),
                 value = item.lastRefreshAtEpochMs?.relativeTime() ?: "Not yet",
                 modifier = Modifier
                     .weight(1f)
@@ -1119,7 +1121,7 @@ private fun SharedSubscriptionStatusCard(item: SubscriptionShareItem) {
             )
             SharedStatusDivider()
             SharedStatusMetric(
-                label = "Next",
+                label = tr("Далее", "Next"),
                 value = item.nextRefreshAtEpochMs?.relativeTime() ?: "On app start",
                 modifier = Modifier
                     .weight(1f)
@@ -1297,7 +1299,7 @@ private fun SharedSubscriptionSourceCard(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "Subscription link",
+                    text = tr("Ссылка-подписка", "Subscription link"),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     maxLines = 1
@@ -1346,7 +1348,7 @@ private fun SharedDangerAction(
             Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Delete subscription",
+                    text = tr("Удалить подписку", "Delete subscription"),
                     color = MaterialTheme.colorScheme.error,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
@@ -1684,7 +1686,7 @@ private enum class SharedSettingsRoute {
 
 private fun Int.subscriptionSummary(): String {
     return when (this) {
-        0 -> "No subscriptions"
+        0 -> tr("Подписок нет", "No subscriptions")
         1 -> "1 subscription"
         else -> "$this subscriptions"
     }

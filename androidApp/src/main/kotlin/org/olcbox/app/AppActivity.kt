@@ -43,6 +43,7 @@ class AppActivity : ComponentActivity() {
         val vpnManager = AndroidVpnManager(this)
         val locationsDataSource = LocationsDataSourceImpl(this)
         val locationsRepository = LocationsRepositoryImpl(locationsDataSource)
+        vpnManager.attachLocations(locationsRepository)
         val configImporter = AndroidConfigImporter(this)
         val logExporter = AndroidLogExporter(this)
         val updateService = AppUpdateService(
@@ -63,9 +64,8 @@ class AppActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            val dynamicThemeEnabled by vpnManager.dynamicThemeEnabled.collectAsState()
-
-            AppTheme(useDynamicColor = dynamicThemeEnabled) {
+            // Тема AKULA — всегда фирменная (без «динамических цветов» Android)
+            AppTheme(useDynamicColor = false) {
                 AndroidMainScreen(
                     viewModel = viewModel,
                     locationViewModel = locationViewModel,

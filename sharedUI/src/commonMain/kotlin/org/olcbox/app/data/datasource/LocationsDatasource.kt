@@ -803,6 +803,8 @@ class LocationsRepositoryImpl(
      */
     private fun parseAwgConfig(text: String): LocationEntry? {
         val body = text.trim()
+        // Пакет подписки (JSON) тоже содержит [Interface]/[Peer] внутри awg_config — его разбирает parseBundle
+        if (body.startsWith("{")) return null
         if (!body.contains("[Interface]") || !body.contains("[Peer]") || !body.contains("PrivateKey")) return null
         val title = Regex("""(?m)^#\s*AKULA:\s*(.+)$""").find(body)?.groupValues?.get(1)?.trim()
         val host = Regex("""(?m)^\s*Endpoint\s*=\s*([^:\s]+)""").find(body)?.groupValues?.get(1).orEmpty()

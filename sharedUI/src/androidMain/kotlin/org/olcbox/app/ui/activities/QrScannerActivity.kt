@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.activities
 
+import org.olcbox.app.ui.i18n.tr
+
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -315,7 +317,7 @@ private fun QrScannerTopBar(onClose: () -> Unit) {
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "Scan QR",
+                    text = tr("Сканировать QR", "Scan QR"),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -422,13 +424,13 @@ private fun QrScannerStatusPanel(modifier: Modifier = Modifier) {
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Ready to scan",
+                        text = tr("Наведите камеру на QR-код", "Ready to scan"),
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Subscription or location URI",
+                        text = tr("Подписка или ссылка на подключение", "Subscription or location URI"),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

@@ -27,7 +27,7 @@ import org.olcbox.app.data.datasource.LocationsDataSourceImpl
 import org.olcbox.app.data.identity.PersistentDeviceIdentityProvider
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
 import org.olcbox.app.vpn.data.KEY_ANDROID_CONNECTION_MODE
-import org.olcbox.app.vpn.data.KEY_ANDROID_DYNAMIC_THEME
+import org.olcbox.app.vpn.data.KEY_ANDROID_AUTO_FAILOVER
 import org.olcbox.app.vpn.data.KEY_ANDROID_SPLIT_TUNNEL_BYPASS_APPS
 import org.olcbox.app.vpn.data.KEY_ANDROID_SPLIT_TUNNEL_MODE
 import org.olcbox.app.vpn.data.KEY_ANDROID_SPLIT_TUNNEL_PROXY_APPS
@@ -47,7 +47,7 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     private val _connectionMode = MutableStateFlow(AndroidConnectionMode.Tun)
     private val _proxySettings = MutableStateFlow(AndroidSocksProxySettings())
     private val _splitTunnelSettings = MutableStateFlow(AndroidSplitTunnelSettings())
-    private val _dynamicThemeEnabled = MutableStateFlow(true)
+    private val _autoFailoverEnabled = MutableStateFlow(false)  // автопереключение — по умолчанию выключено, включает сам пользователь (Павел 16.10.2026)
     private val _installedApps = MutableStateFlow<List<AndroidInstalledApp>>(emptyList())
     private val deviceIdentityProvider = PersistentDeviceIdentityProvider(
         LocationsDataSourceImpl(appContext)
@@ -59,12 +59,18 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     val connectionMode: StateFlow<AndroidConnectionMode> = _connectionMode.asStateFlow()
     val proxySettings: StateFlow<AndroidSocksProxySettings> = _proxySettings.asStateFlow()
     val splitTunnelSettings: StateFlow<AndroidSplitTunnelSettings> = _splitTunnelSettings.asStateFlow()
-    val dynamicThemeEnabled: StateFlow<Boolean> = _dynamicThemeEnabled.asStateFlow()
+    val autoFailoverEnabled: StateFlow<Boolean> = _autoFailoverEnabled.asStateFlow()
     val installedApps: StateFlow<List<AndroidInstalledApp>> = _installedApps.asStateFlow()
 
     init {
         scope.launch {
             ensureProxySettings()
+            launch {  // язык интерфейса — из настроек (по умолчанию как в системе)
+                appContext.vpnPrefDataStore.data.collect { prefs ->
+                    org.olcbox.app.ui.i18n.AppLang.mode.value =
+                        org.olcbox.app.ui.i18n.LangMode.fromValue(prefs[org.olcbox.app.vpn.data.KEY_APP_LANGUAGE])
+                }
+            }
             appContext.vpnPrefDataStore.data
                 .map { preferences ->
                     val mode = AndroidConnectionMode.fromValue(preferences[KEY_ANDROID_CONNECTION_MODE])
@@ -89,14 +95,14 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                         mode = mode,
                         proxy = proxy,
                         splitTunnel = splitTunnel,
-                        dynamicThemeEnabled = preferences[KEY_ANDROID_DYNAMIC_THEME] != false
+                        autoFailoverEnabled = preferences[KEY_ANDROID_AUTO_FAILOVER] == true
                     )
                 }
                 .collect { settings ->
                     _connectionMode.value = settings.mode
                     _proxySettings.value = settings.proxy
                     _splitTunnelSettings.value = settings.splitTunnel
-                    _dynamicThemeEnabled.value = settings.dynamicThemeEnabled
+                    _autoFailoverEnabled.value = settings.autoFailoverEnabled
                 }
         }
         refreshInstalledApps()
@@ -117,11 +123,18 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         }
     }
 
-    fun setDynamicThemeEnabled(enabled: Boolean) {
-        _dynamicThemeEnabled.value = enabled
+    fun setLanguage(mode: org.olcbox.app.ui.i18n.LangMode) {
+        org.olcbox.app.ui.i18n.AppLang.mode.value = mode
+        scope.launch {
+            appContext.vpnPrefDataStore.edit { it[org.olcbox.app.vpn.data.KEY_APP_LANGUAGE] = mode.value }
+        }
+    }
+
+    fun setAutoFailoverEnabled(enabled: Boolean) {
+        _autoFailoverEnabled.value = enabled
         scope.launch {
             appContext.vpnPrefDataStore.edit { preferences ->
-                preferences[KEY_ANDROID_DYNAMIC_THEME] = enabled
+                preferences[KEY_ANDROID_AUTO_FAILOVER] = enabled
             }
         }
     }
@@ -213,21 +226,73 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         updateSplitTunnelSettings(next)
     }
 
-    private val locations by lazy {
+    private var sharedLocations: org.olcbox.app.data.repository.LocationsRepository? = null
+    private val ownLocations by lazy {
         org.olcbox.app.data.datasource.LocationsRepositoryImpl(LocationsDataSourceImpl(appContext))
+    }
+    // Тот же репозиторий, что у экрана: автопереключение меняет выбранное подключение — экран видит сразу
+    private val locations get() = sharedLocations ?: ownLocations
+
+    fun attachLocations(repository: org.olcbox.app.data.repository.LocationsRepository) {
+        sharedLocations = repository
     }
 
     /** Активное подключение AmneziaWG/WireGuard — поднимает библиотека AmneziaWG, иначе — служба olcrtc. */
+    private var connectJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Сначала — выбранное подключение. Автопереключение (настройка, Павел 16.10.2026): не ответило в срок —
+     * пробуем следующие по списку, по кругу один раз. Срок: AmneziaWG/WireGuard — 8 секунд: WireGuard повторяет рукопожатие раз в 5 с, а первое после включения
+     * часто теряется — с 5 с отбраковывался и рабочий сервер (эмулятор 16.10.2026);
+     * olcrtc (белые списки) — 20 секунд: видеозвонок честно собирается дольше 5 секунд.
+     */
     override fun startVpn() {
-        scope.launch {
+        connectJob?.cancel()
+        connectJob = scope.launch {
+            val all = runCatching { locations.getAllLocations() }.getOrDefault(emptyList())
+                .filter { it.location.isComplete() }
             val active = runCatching { locations.getActiveLocation() }.getOrNull()
-            val awg = active?.awgConfig
-            if (!awg.isNullOrBlank()) {
-                AwgTunnel.up(appContext, awg)
-            } else {
-                withContext(Dispatchers.Main) { startOlcrtcVpn() }
+            val order = listOfNotNull(active) + all.filter { it.storageId != active?.storageId }
+            if (order.isEmpty()) {
+                withContext(Dispatchers.Main) { startOlcrtcVpn() }  // как раньше: служба сама скажет, что выбрать
+                return@launch
             }
+            for ((i, entry) in order.withIndex()) {
+                if (i > 0) {
+                    locations.setActiveLocationId(entry.storageId)
+                    OlcboxVpnState.addLog("Автопереключение: пробую «${entry.location.displayName()}»")
+                }
+                startEntry(entry)
+                if (!_autoFailoverEnabled.value || order.size == 1) return@launch
+                if (waitConnected(entry)) return@launch
+                OlcboxVpnState.addLog("«${entry.location.displayName()}» не ответило — следующее")
+                stopEntry(entry)
+                kotlinx.coroutines.delay(500)
+            }
+            OlcboxVpnState.setStatus(VpnStatus.Error("Ни одно подключение не ответило"))
         }
+    }
+
+    private suspend fun startEntry(entry: org.olcbox.app.data.model.LocationEntry) {
+        val awg = entry.awgConfig
+        if (!awg.isNullOrBlank()) AwgTunnel.up(appContext, awg)
+        else withContext(Dispatchers.Main) { startOlcrtcVpn() }
+    }
+
+    private suspend fun stopEntry(entry: org.olcbox.app.data.model.LocationEntry) {
+        if (!entry.awgConfig.isNullOrBlank()) AwgTunnel.down()
+        else withContext(Dispatchers.Main) { stopOlcrtcVpn() }
+    }
+
+    private suspend fun waitConnected(entry: org.olcbox.app.data.model.LocationEntry): Boolean {
+        val isAwg = !entry.awgConfig.isNullOrBlank()
+        val deadline = System.currentTimeMillis() + if (isAwg) 8_000 else 20_000
+        while (System.currentTimeMillis() < deadline) {
+            if (isAwg && AwgTunnel.hasHandshake()) return true
+            if (!isAwg && OlcboxVpnState.status.value == VpnStatus.Connected) return true
+            kotlinx.coroutines.delay(250)
+        }
+        return false
     }
 
     private fun startOlcrtcVpn() {
@@ -257,10 +322,15 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     }
 
     override fun stopVpn() {
+        connectJob?.cancel()  // ручное «Выключить» прерывает и автопереключение
         if (AwgTunnel.isUp()) {
             scope.launch { AwgTunnel.down() }
             return
         }
+        stopOlcrtcVpn()
+    }
+
+    private fun stopOlcrtcVpn() {
         val intent = Intent().apply {
             setClassName(context.packageName, OlcboxVpnActions.SERVICE_CLASS_NAME)
             action = OlcboxVpnActions.ACTION_STOP_VPN
@@ -396,7 +466,7 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         val mode: AndroidConnectionMode,
         val proxy: AndroidSocksProxySettings,
         val splitTunnel: AndroidSplitTunnelSettings,
-        val dynamicThemeEnabled: Boolean
+        val autoFailoverEnabled: Boolean
     )
 
     private companion object {

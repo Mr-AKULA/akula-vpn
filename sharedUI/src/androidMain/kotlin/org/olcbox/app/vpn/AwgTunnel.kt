@@ -54,4 +54,10 @@ object AwgTunnel {
     }
 
     fun isUp(): Boolean = backend?.getState(tunnel) == Tunnel.State.UP
+
+    /** Сервер ответил: WireGuard «поднимается» сразу, даже если сервер недоступен, — смотрим рукопожатие. */
+    fun hasHandshake(): Boolean {
+        val stats = runCatching { backend?.getStatistics(tunnel) }.getOrNull() ?: return false
+        return stats.peers().any { (stats.peer(it)?.latestHandshakeEpochMillis ?: 0L) > 0L }
+    }
 }

@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.home
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -86,7 +88,7 @@ fun HomeScreen(
             isManualImportOpen = true
         } else {
             scope.launch {
-                snackbarHostState.showSnackbar("Invalid import link. Expected olcbox://add?url=<encoded HTTP(S) URL>")
+                snackbarHostState.showSnackbar(tr("Неверная ссылка добавления", "Invalid import link"))
             }
         }
         viewModel.importLinks.consume(request)
@@ -103,8 +105,8 @@ fun HomeScreen(
 
     val primaryActionLabel = when {
         requiresSetup -> "SETUP"
-        state.isVpnLoading || state.isVpnConnected -> "STOP"
-        else -> "START"
+        state.isVpnLoading || state.isVpnConnected -> tr("ВЫКЛЮЧИТЬ", "TURN OFF")
+        else -> tr("ВКЛЮЧИТЬ", "TURN ON")
     }
 
     fun refreshSubscriptions() {
@@ -325,13 +327,13 @@ fun HomeScreen(
                     manualSubscriptionRefresh = ""
                     manualSubscriptionAllowInsecure = false
                 },
-                title = { Text("Import link or URI") },
+                title = { Text(tr("Добавить по ссылке", "Add via link")) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(
                             value = manualImportText,
                             onValueChange = { manualImportText = it },
-                            label = { Text("HTTP, HTTPS, or olcrtc URI") },
+                            label = { Text(tr("Ссылка-подписка или профиль", "Subscription link or profile")) },
                             placeholder = { Text("https://example.org/subscription") },
                             minLines = 3,
                             maxLines = 6,
@@ -346,14 +348,14 @@ fun HomeScreen(
                                         .filter { it.isDigit() || it in "smhd" }
                                         .take(8)
                                 },
-                                label = { Text("Subscription refresh rate") },
-                                placeholder = { Text("Auto") },
+                                label = { Text(tr(tr("Как часто обновлять", "Refresh rate"), "Refresh schedule")) },
+                                placeholder = { Text(tr("Авто", "Auto")) },
                                 supportingText = {
                                     Text(
                                         if (subscriptionRefreshError) {
                                             "Use 5m–30d, for example 10m, 6h, or 1d"
                                         } else {
-                                            "Optional. Empty implies default."
+                                            tr("Можно не заполнять — обновится само", "Optional — updates automatically")
                                         }
                                     )
                                 },
@@ -369,7 +371,7 @@ fun HomeScreen(
                                     checked = manualSubscriptionAllowInsecure,
                                     onCheckedChange = { manualSubscriptionAllowInsecure = it }
                                 )
-                                Text("Allow insecure requests")
+                                Text(tr("Разрешить ссылку без https", "Allow link without https"))
                             }
                         }
                     }
@@ -391,7 +393,7 @@ fun HomeScreen(
                                         viewModel.loadCurrentConfig()
                                     }
                                     scope.launch {
-                                        snackbarHostState.showSnackbar("Configuration imported")
+                                        snackbarHostState.showSnackbar(tr("Подключение добавлено", "Connection added"))
                                     }
                                 },
                                 onError = { message ->
@@ -402,7 +404,7 @@ fun HomeScreen(
                             )
                         }
                     ) {
-                        Text("Import")
+                        Text(tr("Добавить", "Add"))
                     }
                 },
                 dismissButton = {
@@ -420,7 +422,7 @@ fun HomeScreen(
                             )
                         }
                     ) {
-                        Text("Paste clipboard")
+                        Text(tr("Вставить", "Paste"))
                     }
                 }
             )

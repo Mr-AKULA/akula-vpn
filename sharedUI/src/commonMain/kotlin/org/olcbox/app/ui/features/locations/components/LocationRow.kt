@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.locations.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -163,7 +165,7 @@ fun LocationRow(
 
             isError -> {
                 Text(
-                    text = "Offline",
+                    text = tr("Нет связи", "Offline"),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.error

@@ -26,15 +26,8 @@ actual fun AppTheme(
         LocalThemeIsDark provides isDarkState
     ) {
         val isDark by isDarkState
-        val colorScheme = when {
-            useDynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                val context = LocalContext.current
-                if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            }
-
-            isDark -> OlcboxDarkColorScheme
-            else -> OlcboxLightColorScheme
-        }
+        // AKULA VPN — всегда фирменная тёмная тема: без светлой и без подкраски под обои (Material You)
+        val colorScheme = OlcboxDarkColorScheme
 
         MaterialTheme(
             colorScheme = colorScheme,

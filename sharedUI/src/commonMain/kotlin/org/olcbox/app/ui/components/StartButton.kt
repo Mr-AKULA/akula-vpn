@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -101,10 +103,10 @@ fun StartButton(
 
             Text(
                 text = label ?: when {
-                    isLoading -> "STOP"
-                    isActive -> "STOP"
+                    isLoading -> tr("ВЫКЛЮЧИТЬ", "TURN OFF")
+                    isActive -> tr("ВЫКЛЮЧИТЬ", "TURN OFF")
                     requiresSetup -> "SETUP"
-                    else -> "START"
+                    else -> tr("ВКЛЮЧИТЬ", "TURN ON")
                 },
                 color = contentColor.copy(alpha = if (!enabled) 0.7f else 1f),
                 fontSize = 22.sp,

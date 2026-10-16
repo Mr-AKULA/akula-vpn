@@ -5,30 +5,37 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import multiplatform_app.sharedui.generated.resources.Res
-import multiplatform_app.sharedui.generated.resources.google_sans_flex_bold
-import multiplatform_app.sharedui.generated.resources.google_sans_flex_medium
-import multiplatform_app.sharedui.generated.resources.google_sans_flex_regular
-import multiplatform_app.sharedui.generated.resources.google_sans_flex_semi_bold
+import multiplatform_app.sharedui.generated.resources.manrope_400
+import multiplatform_app.sharedui.generated.resources.manrope_500
+import multiplatform_app.sharedui.generated.resources.manrope_600
+import multiplatform_app.sharedui.generated.resources.manrope_700
+import multiplatform_app.sharedui.generated.resources.unbounded_600
+import multiplatform_app.sharedui.generated.resources.unbounded_700
 import org.jetbrains.compose.resources.Font
 
 @Composable
 fun getAppTypography(): Typography {
+    // Шрифты AKULA (как сайт и консоль): Manrope — текст, Unbounded — заголовки
     val googleSansFlex = FontFamily(
-        Font(Res.font.google_sans_flex_regular, weight = FontWeight.Normal),
-        Font(Res.font.google_sans_flex_medium, weight = FontWeight.Medium),
-        Font(Res.font.google_sans_flex_semi_bold, weight = FontWeight.SemiBold),
-        Font(Res.font.google_sans_flex_bold, weight = FontWeight.Bold)
+        Font(Res.font.manrope_400, weight = FontWeight.Normal),
+        Font(Res.font.manrope_500, weight = FontWeight.Medium),
+        Font(Res.font.manrope_600, weight = FontWeight.SemiBold),
+        Font(Res.font.manrope_700, weight = FontWeight.Bold)
+    )
+    val unbounded = FontFamily(
+        Font(Res.font.unbounded_600, weight = FontWeight.SemiBold),
+        Font(Res.font.unbounded_700, weight = FontWeight.Bold)
     )
 
     val defaultTypography = Typography()
 
     return Typography(
-        displayLarge = defaultTypography.displayLarge.copy(fontFamily = googleSansFlex),
-        displayMedium = defaultTypography.displayMedium.copy(fontFamily = googleSansFlex),
-        displaySmall = defaultTypography.displaySmall.copy(fontFamily = googleSansFlex),
-        headlineLarge = defaultTypography.headlineLarge.copy(fontFamily = googleSansFlex),
-        headlineMedium = defaultTypography.headlineMedium.copy(fontFamily = googleSansFlex),
-        headlineSmall = defaultTypography.headlineSmall.copy(fontFamily = googleSansFlex),
+        displayLarge = defaultTypography.displayLarge.copy(fontFamily = unbounded),
+        displayMedium = defaultTypography.displayMedium.copy(fontFamily = unbounded),
+        displaySmall = defaultTypography.displaySmall.copy(fontFamily = unbounded),
+        headlineLarge = defaultTypography.headlineLarge.copy(fontFamily = unbounded),
+        headlineMedium = defaultTypography.headlineMedium.copy(fontFamily = unbounded),
+        headlineSmall = defaultTypography.headlineSmall.copy(fontFamily = unbounded),
         titleLarge = defaultTypography.titleLarge.copy(fontFamily = googleSansFlex),
         titleMedium = defaultTypography.titleMedium.copy(fontFamily = googleSansFlex),
         titleSmall = defaultTypography.titleSmall.copy(fontFamily = googleSansFlex),

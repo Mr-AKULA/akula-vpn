@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.home.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -93,7 +95,7 @@ fun LocationSelectorScreen(
                                 isRefreshing = isGroupRefreshing,
                                 onClick = { onRefreshClick(groupIds) },
                                 tint = MaterialTheme.colorScheme.primary,
-                                label = "Ping",
+                                label = tr("Проверить", "Check"),
                                 icon = Icons.Outlined.Bolt,
                                 enabled = updatingSubscriptionUrl == null
                             )
@@ -107,7 +109,7 @@ fun LocationSelectorScreen(
                                         isRefreshing = updatingSubscriptionUrl == subscriptionUrl,
                                         onClick = { onSubscriptionUpdateClick(subscriptionUrl) },
                                         tint = MaterialTheme.colorScheme.primary,
-                                        label = "Update",
+                                        label = tr("Обновить", "Update"),
                                         icon = Icons.Outlined.Refresh,
                                         enabled = updatingSubscriptionUrl == null && !isGroupRefreshing
                                     )
@@ -148,7 +150,7 @@ fun LocationSelectorScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         LocationGroupHeader(
-                            title = "Custom locations",
+                            title = tr("Мои подключения", "My connections"),
                             modifier = Modifier.weight(1f)
                         )
 
@@ -161,7 +163,7 @@ fun LocationSelectorScreen(
                             isRefreshing = isCustomRefreshing,
                             onClick = { onRefreshClick(customIds) },
                             tint = MaterialTheme.colorScheme.primary,
-                            label = "Ping",
+                            label = tr("Проверить", "Check"),
                             icon = Icons.Outlined.Bolt
                         )
                     }
@@ -192,7 +194,7 @@ fun LocationSelectorScreen(
                 Icon(Icons.Rounded.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = "Add custom location",
+                    text = tr("Добавить вручную", "Add manually"),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -209,7 +211,7 @@ fun LocationSelectorScreen(
                     Icon(Icons.Rounded.Add, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        text = "Add subscription",
+                        text = tr("Добавить по ссылке", "Add via link"),
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -229,7 +231,7 @@ private fun RelaySetupCard(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
-            text = "Add relay setup",
+            text = tr("Добавить подключение", "Add connection"),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
@@ -237,16 +239,16 @@ private fun RelaySetupCard(
         )
 
         SetupActionRow(
-            title = "Add subscription",
-            subtitle = "Scan QR, paste URI, or import file",
+            title = tr("Добавить по ссылке", "Add via link"),
+            subtitle = tr("Сканировать QR, вставить ссылку или открыть файл", "Scan QR, paste URI, or import file"),
             icon = Icons.Outlined.QrCodeScanner,
             prominent = true,
             onClick = onAddSubscriptionClick
         )
 
         SetupActionRow(
-            title = "Create custom location",
-            subtitle = "Enter room, key, provider, and transport",
+            title = tr("Новое подключение", "Create custom location"),
+            subtitle = tr("Комната, ключ, сервис и способ передачи", "Enter room, key, provider, and transport"),
             icon = Icons.Outlined.Add,
             onClick = onAddLocationClick
         )

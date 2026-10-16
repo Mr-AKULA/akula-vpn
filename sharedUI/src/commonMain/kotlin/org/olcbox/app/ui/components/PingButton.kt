@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -133,7 +135,7 @@ fun PingButton(
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Connectivity Check",
+                    text = tr("Проверка связи", "Connectivity Check"),
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface

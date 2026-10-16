@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -18,7 +20,7 @@ fun IosSocksOnboardingDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Connect apps through Olcbox") },
+        title = { Text(tr("Пускать приложения через AKULA VPN", "Route apps through AKULA VPN")) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -35,12 +37,12 @@ fun IosSocksOnboardingDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Got it")
+                Text(tr("Понятно", "Got it"))
             }
         },
         dismissButton = {
             TextButton(onClick = onCopy) {
-                Text("Copy settings")
+                Text(tr("Скопировать настройки", "Copy settings"))
             }
         }
     )

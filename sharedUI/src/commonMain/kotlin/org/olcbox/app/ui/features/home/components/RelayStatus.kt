@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.home.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -59,14 +61,14 @@ fun RelayStatus(
         else -> MaterialTheme.colorScheme.onSurface
     }
     val title = when {
-        isActive -> "Relay Active"
-        requiresSetup -> "Relay Inactive"
-        else -> "Relay Inactive"
+        isActive -> tr("Защита включена", "Protection on")
+        requiresSetup -> tr("Защита выключена", "Protection off")
+        else -> tr("Защита выключена", "Protection off")
     }
     val subtitle = when {
-        isActive -> "Connected"
-        requiresSetup -> "No location selected"
-        else -> "Disconnected"
+        isActive -> tr("Подключено", "Connected")
+        requiresSetup -> tr("Выберите подключение", "Choose a connection")
+        else -> tr("Отключено", "Disconnected")
     }
 
     Surface(

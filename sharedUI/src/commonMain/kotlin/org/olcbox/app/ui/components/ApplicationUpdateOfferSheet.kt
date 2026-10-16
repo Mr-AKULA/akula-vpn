@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -51,7 +53,7 @@ fun ApplicationUpdateOfferSheet(
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    text = "Update available",
+                    text = tr("Есть обновление", "Update available"),
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -99,7 +101,7 @@ fun ApplicationUpdateOfferSheet(
                     modifier = Modifier.weight(1f),
                     enabled = downloadProgress == null
                 ) {
-                    Text("Later")
+                    Text(tr("Позже", "Later"))
                 }
                 Button(
                     onClick = onDownload,

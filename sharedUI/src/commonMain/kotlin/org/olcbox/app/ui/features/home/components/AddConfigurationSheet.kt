@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.home.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -64,8 +66,8 @@ fun AddConfigurationSheet(
                 .padding(bottom = 32.dp)
         ) {
             AddSheetHeader(
-                title = "Add connection",
-                subtitle = "Subscription or custom location"
+                title = tr("Добавить подключение", "Add connection"),
+                subtitle = tr("Подписка или своё подключение", "Subscription or custom location")
             )
 
             Spacer(Modifier.height(20.dp))
@@ -73,31 +75,31 @@ fun AddConfigurationSheet(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (canScanQr) {
                     AddSheetAction(
-                        title = "Scan QR code",
-                        value = "Subscription or olcrtc URI",
+                        title = tr("Сканировать QR-код", "Scan QR code"),
+                        value = tr("Подписка или ссылка olcrtc", "Subscription or olcrtc URI"),
                         icon = Icons.Outlined.QrCodeScanner,
                         onClick = onScanQrClick
                     )
                 }
 
                 AddSheetAction(
-                    title = "Enter link or URI",
-                    value = "Type, edit, or import from clipboard",
+                    title = tr("Вставьте ссылку", "Enter link or URI"),
+                    value = tr("Введите, измените или вставьте из буфера", "Type, edit, or import from clipboard"),
                     icon = Icons.AutoMirrored.Outlined.Input,
                     onClick = onPasteLinkClick
                 )
 
                 AddSheetAction(
-                    title = "Import from file",
-                    value = "Read subscription or config file",
+                    title = tr("Открыть файл", "Import from file"),
+                    value = tr("Открыть файл подписки или профиля", "Read subscription or config file"),
                     icon = Icons.Outlined.FileOpen,
                     onClick = onImportFileClick
                 )
 
                 if (hasSubscriptions) {
                     AddSheetAction(
-                        title = "Update subscriptions",
-                        value = "Refresh imported subscription locations",
+                        title = tr("Обновить подписки", "Update subscriptions"),
+                        value = tr("Обновить подключения из подписок", "Refresh imported subscription locations"),
                         icon = Icons.Outlined.Refresh,
                         showChevron = false,
                         onClick = onUpdateSubscriptionsClick
@@ -105,8 +107,8 @@ fun AddConfigurationSheet(
                 }
 
                 AddSheetAction(
-                    title = "Create custom location",
-                        value = "Enter room, key, provider, and transport",
+                    title = tr("Новое подключение", "Create custom location"),
+                        value = tr("Комната, ключ, сервис и способ передачи", "Enter room, key, provider, and transport"),
                     icon = Icons.Outlined.Add,
                     onClick = onAddCustomLocationClick
                 )

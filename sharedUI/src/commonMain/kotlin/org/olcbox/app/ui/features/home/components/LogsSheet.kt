@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.home.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -94,7 +96,7 @@ fun LogsContent(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Application Logs",
+                text = tr("Журнал", "Logs"),
                 style = MaterialTheme.typography.headlineSmall,
             )
 
@@ -103,13 +105,13 @@ fun LogsContent(
                     enabled = logs.isNotEmpty(),
                     onClick = onSaveClick
                 ) {
-                    Text("Save")
+                    Text(tr("Сохранить", "Save"))
                 }
                 TextButton(
                     enabled = logs.isNotEmpty(),
                     onClick = onShareClick
                 ) {
-                    Text("Share")
+                    Text(tr("Поделиться", "Share"))
                 }
 
                 IconButton(onClick = onCloseClick) {

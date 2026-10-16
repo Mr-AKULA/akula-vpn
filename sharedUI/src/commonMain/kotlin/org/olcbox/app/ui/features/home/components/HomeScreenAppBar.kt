@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.features.home.components
 
+import org.olcbox.app.ui.i18n.tr
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
@@ -29,12 +31,12 @@ fun HomeScreenAppBar(
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "olcbox",
+                    text = "AKULA VPN",
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "multiplatform olcrtc configurator",
+                    text = tr("ваш личный VPN", "your personal VPN"),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

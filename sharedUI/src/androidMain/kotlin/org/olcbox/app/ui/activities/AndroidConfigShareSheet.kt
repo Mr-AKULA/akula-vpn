@@ -1,5 +1,7 @@
 package org.olcbox.app.ui.activities
 
+import org.olcbox.app.ui.i18n.tr
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -114,7 +116,7 @@ internal fun AndroidConfigShareSheet(
                 ) {
                     Icon(Icons.Outlined.ContentCopy, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
-                    Text("Copy")
+                    Text(tr("Копировать", "Copy"))
                 }
 
                 Button(
@@ -123,7 +125,7 @@ internal fun AndroidConfigShareSheet(
                 ) {
                     Icon(Icons.Outlined.Share, contentDescription = null)
                     Spacer(Modifier.size(8.dp))
-                    Text("Share")
+                    Text(tr("Поделиться", "Share"))
                 }
             }
         }
@@ -132,7 +134,7 @@ internal fun AndroidConfigShareSheet(
 
 private fun Context.copySharePayload(payload: String) {
     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText("Olcbox config", payload))
+    clipboard.setPrimaryClip(ClipData.newPlainText(tr("Настройки AKULA VPN", "AKULA VPN config"), payload))
 }
 
 private fun Context.sharePayload(payload: String, title: String) {

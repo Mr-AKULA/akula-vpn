@@ -57,7 +57,7 @@ abstract class GenerateAppInfoTask : DefaultTask() {
             package org.olcbox.app
 
             internal object GeneratedAppInfo {
-                const val NAME: String = "olcbox"
+                const val NAME: String = "AKULA VPN"
                 const val VERSION: String = "$escapedVersion"
                 const val OLCRTC_SHA: String = "$escapedOlcrtcSha"
             }

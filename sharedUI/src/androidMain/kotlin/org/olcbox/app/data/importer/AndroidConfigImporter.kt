@@ -1,5 +1,7 @@
 package org.olcbox.app.data.importer
 
+import org.olcbox.app.ui.i18n.tr
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -25,7 +27,7 @@ class AndroidConfigImporter(private val context: Context) : ConfigImporter {
 
     override fun copyToClipboard(text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = ClipData.newPlainText("Olcbox Locations", text)
+        val clip = ClipData.newPlainText(tr("Подключения AKULA VPN", "AKULA VPN connections"), text)
         clipboard.setPrimaryClip(clip)
         Toast.makeText(context, "Config copied to clipboard", Toast.LENGTH_SHORT).show()
     }

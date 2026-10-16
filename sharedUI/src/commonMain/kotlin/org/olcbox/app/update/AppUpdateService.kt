@@ -20,6 +20,8 @@ enum class ReleaseChannel {
     Nightly
 }
 
+private const val AKULA_UPDATES_OFF = true
+
 data class ReleaseMirror(
     val name: String,
     val repositoryUrl: String
@@ -64,6 +66,10 @@ class AppUpdateService(
         channel: ReleaseChannel,
         proxy: SubscriptionFetchProxy? = null
     ): Result<AppUpdateInfo> = runCatching {
+        // AKULA VPN: обновления исходного olcbox (github.com/alananisimov/olcbox) не предлагаем — это чужое
+        // приложение, «Download» увёл бы пользователя с AKULA VPN (эмулятор, 16.10.2026). Свои обновления —
+        // позже, с akula-hosting.ru.
+        if (AKULA_UPDATES_OFF) error("Обновления AKULA VPN приходят отдельно — проверка исходного olcbox выключена")
         val release = fetchRelease(channel, proxy)
         val asset = selectAsset(release.assets, platform)
             ?: error(
