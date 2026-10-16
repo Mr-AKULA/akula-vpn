@@ -306,11 +306,26 @@ fun AndroidMainScreen(
 
         if (rawText.isBlank()) return@rememberLauncherForActivityResult
 
+        // QR со ссылкой-подпиской из консоли AKULA: открыть окно «Добавить по ссылке» (там скачивание по
+        // ссылке и галочка «без https»). Раньше ссылка разбиралась как текст профиля — и не добавлялась (16.10.2026)
+        if (rawText.startsWith("http://", ignoreCase = true) || rawText.startsWith("https://", ignoreCase = true)) {
+            val encoded = rawText.encodeToByteArray().joinToString("") { b ->
+                val c = b.toInt().toChar()
+                if (c.isLetterOrDigit() || c in "-._~") c.toString() else "%" + (b.toInt() and 0xFF).toString(16).padStart(2, '0').uppercase()
+            }
+            viewModel.importLinks.open("olcbox://add?url=$encoded")
+            return@rememberLauncherForActivityResult
+        }
+        if (rawText.startsWith("olcbox://", ignoreCase = true)) {
+            viewModel.importLinks.open(rawText)
+            return@rememberLauncherForActivityResult
+        }
+
         viewModel.onImportFullConfig(
             rawText = rawText,
             onComplete = {
                 reloadLocationsAfterImport {
-                    Toast.makeText(context, "QR imported", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, org.olcbox.app.ui.i18n.tr("QR-код добавлен", "QR imported"), Toast.LENGTH_SHORT).show()
                 }
             }
         )
