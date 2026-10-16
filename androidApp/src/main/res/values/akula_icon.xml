@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Фон иконки AKULA VPN — тёмный «подводный», как сайт и консоль -->
+    <color name="akula_icon_background">#070C10</color>
+</resources>
