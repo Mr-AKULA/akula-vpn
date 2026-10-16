@@ -1,0 +1,21 @@
+AKULA VPN
+Copyright (C) 2026 Mr-AKULA (AKULA)
+
+AKULA VPN is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version. See LICENSE.
+
+AKULA VPN is based on and includes the following components:
+
+- olcbox — Copyright (c) 2026 alananisimov — MIT License (licenses/olcbox-MIT.txt)
+  https://github.com/alananisimov/olcbox
+- olcRTC — Copyright (C) 2026 zarazaex — WTFPL v2 (licenses/olcrtc-WTFPL.txt)
+  https://github.com/openlibrecommunity/olcrtc
+- AmneziaWG for Android (tunnel library) — Copyright © 2017-2023 WireGuard LLC and AmneziaVPN —
+  Apache License 2.0 (licenses/amneziawg-android-Apache-2.0.txt)
+  https://github.com/amnezia-vpn/amneziawg-android — built by tools/awg-tunnel
+- OpenVPN for Android (ics-openvpn) — Copyright (c) 2012-2026 Arne Schwabe — GNU GPL v2 or later
+  (licenses/ics-openvpn-LICENSE.txt), which includes OpenVPN, OpenSSL/mbedTLS, LZ4 and other
+  components under their own licenses — https://github.com/schwabe/ics-openvpn — built by tools/ics-openvpn
+
+Fonts: Manrope and Unbounded — SIL Open Font License 1.1 (Google Fonts).
