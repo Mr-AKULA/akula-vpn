@@ -29,8 +29,13 @@ data class LocationConfig(
     @SerialName("vp8_batch")
     val vp8Batch: Int = DEFAULT_VP8_BATCH,
     @SerialName("dns_server")
-    val dnsServer: String = ""
+    val dnsServer: String = "",
+    // AmneziaWG/WireGuard: текст профиля (.conf) из консоли сервера AKULA. Пусто — подключение olcrtc
+    @SerialName("awg_config")
+    val awgConfig: String = ""
 ) {
+    val isAwg: Boolean get() = awgConfig.isNotBlank()
+
     fun normalized(): LocationConfig {
         val provider = normalizeProvider(bypassProvider)
         val normalizedTransport = normalizeTransport(transport, provider)
@@ -46,13 +51,13 @@ data class LocationConfig(
         )
     }
 
-    fun isComplete(): Boolean = id.isNotBlank() && key.isNotBlank()
+    fun isComplete(): Boolean = isAwg || (id.isNotBlank() && key.isNotBlank())
 
     fun displayName(): String = name.ifBlank { id }
 
-    fun providerName(): String = providerDisplayName(bypassProvider)
+    fun providerName(): String = if (isAwg) "AmneziaWG" else providerDisplayName(bypassProvider)
 
-    fun transportName(): String = transportDisplayName(transport, bypassProvider)
+    fun transportName(): String = if (isAwg) "WireGuard" else transportDisplayName(transport, bypassProvider)
 
     companion object {
         const val PROVIDER_JAZZ = "jazz"
@@ -578,7 +583,10 @@ data class LocationEntry(
     @SerialName("dns_server")
     val dnsServer: String? = null,
     @SerialName("dnsServer")
-    val legacyDnsServerCamel: String? = null
+    val legacyDnsServerCamel: String? = null,
+    // AmneziaWG/WireGuard — текст профиля из консоли AKULA (см. LocationConfig.awgConfig)
+    @SerialName("awg_config")
+    val awgConfig: String? = null
 ) {
     val location: LocationConfig
         get() {
@@ -607,7 +615,8 @@ data class LocationEntry(
                     ?: legacyVp8Batch
                     ?: legacyVp8BatchCamel
                     ?: LocationConfig.DEFAULT_VP8_BATCH,
-                dnsServer = firstNotBlank(dnsServer, legacyDnsServerCamel)
+                dnsServer = firstNotBlank(dnsServer, legacyDnsServerCamel),
+                awgConfig = awgConfig.orEmpty()
             ).normalized()
         }
 
@@ -629,7 +638,8 @@ data class LocationEntry(
             dnsServer = config.dnsServer.takeIf { it.isNotBlank() },
             metadata = metadata
                 ?.normalized()
-                ?.takeUnless { it.isEmpty() }
+                ?.takeUnless { it.isEmpty() },
+            awgConfig = config.awgConfig.takeIf { it.isNotBlank() }
         )
     }
 
@@ -652,7 +662,8 @@ data class LocationEntry(
                 authProvider = config.bypassProvider,
                 transport = LocationTransportConfig.from(config),
                 dnsServer = config.dnsServer.takeIf { it.isNotBlank() },
-                metadata = metadata
+                metadata = metadata,
+                awgConfig = config.awgConfig.takeIf { it.isNotBlank() }
             ).normalized()
         }
 

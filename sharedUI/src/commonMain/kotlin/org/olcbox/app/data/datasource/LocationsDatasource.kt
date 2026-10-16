@@ -797,11 +797,28 @@ class LocationsRepositoryImpl(
         ).normalized()
     }
 
+    /**
+     * Профиль AmneziaWG/WireGuard из консоли сервера AKULA (файл .conf или QR-код): секции [Interface] и [Peer].
+     * Имя — из строки «# AKULA: имя · режим», которую добавляет консоль; иначе — по адресу сервера.
+     */
+    private fun parseAwgConfig(text: String): LocationEntry? {
+        val body = text.trim()
+        if (!body.contains("[Interface]") || !body.contains("[Peer]") || !body.contains("PrivateKey")) return null
+        val title = Regex("""(?m)^#\s*AKULA:\s*(.+)$""").find(body)?.groupValues?.get(1)?.trim()
+        val host = Regex("""(?m)^\s*Endpoint\s*=\s*([^:\s]+)""").find(body)?.groupValues?.get(1).orEmpty()
+        val name = title ?: "AKULA · ${host.ifBlank { "сервер" }}"
+        val slug = (title ?: host).lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_').take(24)
+        return LocationEntry(storageId = "awg_${slug.ifBlank { "akula" }}", name = name, awgConfig = body).normalized()
+    }
+
     private fun parseImport(
         text: String,
         subscriptionUrl: String? = null,
         updateIntervalMs: Long? = null
     ): ParsedImport? {
+        parseAwgConfig(text)?.let { entry ->
+            return ParsedImport(LocationBundleV4(activeLocationId = entry.storageId, locations = listOf(entry)), ImportMode.Additive)
+        }
         parseOlcRtcText(text, subscriptionUrl, updateIntervalMs)?.let {
             return ParsedImport(it, ImportMode.Additive)
         }

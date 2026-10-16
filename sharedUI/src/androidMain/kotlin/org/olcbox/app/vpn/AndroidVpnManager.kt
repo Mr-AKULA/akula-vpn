@@ -213,7 +213,24 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         updateSplitTunnelSettings(next)
     }
 
+    private val locations by lazy {
+        org.olcbox.app.data.datasource.LocationsRepositoryImpl(LocationsDataSourceImpl(appContext))
+    }
+
+    /** Активное подключение AmneziaWG/WireGuard — поднимает библиотека AmneziaWG, иначе — служба olcrtc. */
     override fun startVpn() {
+        scope.launch {
+            val active = runCatching { locations.getActiveLocation() }.getOrNull()
+            val awg = active?.awgConfig
+            if (!awg.isNullOrBlank()) {
+                AwgTunnel.up(appContext, awg)
+            } else {
+                withContext(Dispatchers.Main) { startOlcrtcVpn() }
+            }
+        }
+    }
+
+    private fun startOlcrtcVpn() {
         val intent = Intent().apply {
             setClassName(context.packageName, OlcboxVpnActions.SERVICE_CLASS_NAME)
             action = OlcboxVpnActions.ACTION_START_VPN
@@ -240,6 +257,10 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     }
 
     override fun stopVpn() {
+        if (AwgTunnel.isUp()) {
+            scope.launch { AwgTunnel.down() }
+            return
+        }
         val intent = Intent().apply {
             setClassName(context.packageName, OlcboxVpnActions.SERVICE_CLASS_NAME)
             action = OlcboxVpnActions.ACTION_STOP_VPN
