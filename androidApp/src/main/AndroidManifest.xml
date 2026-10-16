@@ -27,8 +27,10 @@
         </intent>
     </queries>
 
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <application
         android:name=".App"
+        tools:replace="android:name,android:label,android:theme"
         android:banner="@mipmap/ic_launcher"
         android:icon="@mipmap/ic_launcher"
         android:label="AKULA VPN"
@@ -113,6 +115,13 @@
                 android:value="true" />
         </service>
 
+
+        <!-- OpenVPN (ics-openvpn): внешнее управление VPN другими приложениями и автозапуск при загрузке нам не
+             нужны — убираем (лишние открытые входы). Своё приложение управляет VPN само. -->
+        <service android:name="de.blinkt.openvpn.api.ExternalOpenVPNService" tools:node="remove" />
+        <activity android:name="de.blinkt.openvpn.api.GrantPermissionsActivity" tools:node="remove" />
+        <activity android:name="de.blinkt.openvpn.api.ConfirmDialog" tools:node="remove" />
+        <receiver android:name="de.blinkt.openvpn.OnBootReceiver" tools:node="remove" />
     </application>
 
 </manifest>

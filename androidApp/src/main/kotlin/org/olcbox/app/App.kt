@@ -1,9 +1,9 @@
 package org.olcbox.app
 
-import android.app.Application
 import android.content.Context
 
-class App : Application() {
+// Наследуем класс приложения ics-openvpn: он готовит каналы уведомлений и слушатель состояния OpenVPN
+class App : de.blinkt.openvpn.core.ICSOpenVPNApplication() {
     companion object {
         lateinit var appContext: Context
     }

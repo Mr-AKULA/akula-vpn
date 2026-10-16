@@ -24,6 +24,7 @@ dependencyResolutionManagement {
 include(":sharedUI")
 include(":sharedUI:olcrtc-bin")
 include(":sharedUI:awg-bin")
+include(":sharedUI:ovpn-bin")
 include(":androidApp")
 include(":desktopApp")
 

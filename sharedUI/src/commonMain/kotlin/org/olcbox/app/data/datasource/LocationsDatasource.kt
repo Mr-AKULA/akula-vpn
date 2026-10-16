@@ -813,11 +813,26 @@ class LocationsRepositoryImpl(
         return LocationEntry(storageId = "awg_${slug.ifBlank { "akula" }}", name = name, awgConfig = body).normalized()
     }
 
+    /** Профиль OpenVPN (.ovpn) из консоли AKULA: строки remote и сертификат; имя — из «# AKULA: …» или по адресу. */
+    private fun parseOvpnConfig(text: String): LocationEntry? {
+        val body = text.trim()
+        if (body.startsWith("{")) return null
+        if (!Regex("""(?m)^\s*remote\s+\S+""").containsMatchIn(body) || !body.contains("<ca>")) return null
+        val title = Regex("""(?m)^#\s*AKULA:\s*(.+)$""").find(body)?.groupValues?.get(1)?.trim()
+        val host = Regex("""(?m)^\s*remote\s+(\S+)""").find(body)?.groupValues?.get(1).orEmpty()
+        val name = title ?: "AKULA · OpenVPN · ${host.ifBlank { "сервер" }}"
+        val slug = (title ?: "ovpn_$host").lowercase().replace(Regex("[^a-z0-9]+"), "_").trim('_').take(24)
+        return LocationEntry(storageId = "ovpn_${slug.ifBlank { "akula" }}", name = name, ovpnConfig = body).normalized()
+    }
+
     private fun parseImport(
         text: String,
         subscriptionUrl: String? = null,
         updateIntervalMs: Long? = null
     ): ParsedImport? {
+        parseOvpnConfig(text)?.let { entry ->
+            return ParsedImport(LocationBundleV4(activeLocationId = entry.storageId, locations = listOf(entry)), ImportMode.Additive)
+        }
         parseAwgConfig(text)?.let { entry ->
             return ParsedImport(LocationBundleV4(activeLocationId = entry.storageId, locations = listOf(entry)), ImportMode.Additive)
         }

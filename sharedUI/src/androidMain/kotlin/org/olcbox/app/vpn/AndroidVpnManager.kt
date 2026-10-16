@@ -275,21 +275,30 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
 
     private suspend fun startEntry(entry: org.olcbox.app.data.model.LocationEntry) {
         val awg = entry.awgConfig
-        if (!awg.isNullOrBlank()) AwgTunnel.up(appContext, awg)
-        else withContext(Dispatchers.Main) { startOlcrtcVpn() }
+        val ovpn = entry.ovpnConfig
+        when {
+            !awg.isNullOrBlank() -> AwgTunnel.up(appContext, awg)
+            !ovpn.isNullOrBlank() -> withContext(Dispatchers.Main) { OvpnTunnel.up(appContext, ovpn, entry.location.displayName()) }
+            else -> withContext(Dispatchers.Main) { startOlcrtcVpn() }
+        }
     }
 
     private suspend fun stopEntry(entry: org.olcbox.app.data.model.LocationEntry) {
-        if (!entry.awgConfig.isNullOrBlank()) AwgTunnel.down()
-        else withContext(Dispatchers.Main) { stopOlcrtcVpn() }
+        when {
+            !entry.awgConfig.isNullOrBlank() -> AwgTunnel.down()
+            !entry.ovpnConfig.isNullOrBlank() -> withContext(Dispatchers.Main) { OvpnTunnel.down(appContext) }
+            else -> withContext(Dispatchers.Main) { stopOlcrtcVpn() }
+        }
     }
 
     private suspend fun waitConnected(entry: org.olcbox.app.data.model.LocationEntry): Boolean {
         val isAwg = !entry.awgConfig.isNullOrBlank()
+        val isOvpn = !entry.ovpnConfig.isNullOrBlank()  // OpenVPN (TLS) подключается дольше WireGuard — 20 с, как olcrtc
         val deadline = System.currentTimeMillis() + if (isAwg) 8_000 else 20_000
         while (System.currentTimeMillis() < deadline) {
             if (isAwg && AwgTunnel.hasHandshake()) return true
-            if (!isAwg && OlcboxVpnState.status.value == VpnStatus.Connected) return true
+            if (isOvpn && OvpnTunnel.isConnected()) return true
+            if (!isAwg && !isOvpn && OlcboxVpnState.status.value == VpnStatus.Connected) return true
             kotlinx.coroutines.delay(250)
         }
         return false
@@ -325,6 +334,10 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         connectJob?.cancel()  // ручное «Выключить» прерывает и автопереключение
         if (AwgTunnel.isUp()) {
             scope.launch { AwgTunnel.down() }
+            return
+        }
+        if (OvpnTunnel.isUp()) {
+            OvpnTunnel.down(appContext)
             return
         }
         stopOlcrtcVpn()

@@ -114,6 +114,8 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // OpenVPN 2 (ics-openvpn ovpn2): движок openvpn3 не нужен — минус ~9 МБ (libosslspeedtest нужна: через неё грузится OpenSSL)
+            excludes += setOf("**/libovpn3.so")
         }
     }
 }
@@ -127,6 +129,7 @@ kotlin {
 
 dependencies {
     implementation(project(":sharedUI"))
+    implementation(project(":sharedUI:ovpn-bin"))  // App наследует класс приложения ics-openvpn
     implementation(libs.androidx.activityCompose)
     implementation(libs.androidx.datastore.preferences)
 }

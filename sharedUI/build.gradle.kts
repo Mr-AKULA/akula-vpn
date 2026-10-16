@@ -181,6 +181,7 @@ kotlin {
             implementation(project(":sharedUI:olcrtc-bin"))
             // AmneziaWG/WireGuard (.aar из tools/awg-tunnel); её зависимости — явно: у готового .aar они не подтягиваются
             implementation(project(":sharedUI:awg-bin"))
+            implementation(project(":sharedUI:ovpn-bin"))  // OpenVPN (ics-openvpn, GPL v2+)
             implementation("androidx.annotation:annotation:1.9.1")
             implementation("androidx.collection:collection:1.5.0")
         }
