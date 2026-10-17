@@ -201,7 +201,7 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
             val checkStartedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
             if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
 
-            updateMessage = "Checking ${previousSettings.channel.name.lowercase()}..."
+            updateMessage = tr("Проверяю обновления…", "Checking for updates…")
             val result = dependencies.updateService.check(previousSettings.channel)
             val checkedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
             val checkedSettings = previousSettings.copy(lastCheckAtEpochMs = checkedAt).normalized()
@@ -211,10 +211,10 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
                     if (manual || info.shouldShowOffer(previousSettings, checkedAt)) {
                         if (info.isDownloaded(checkedSettings)) {
                             updateOffer = null
-                            updateMessage = "Latest ${info.channel.name.lowercase()} is already downloaded"
+                            updateMessage = tr("Последняя версия уже скачана", "Latest version is already downloaded")
                         } else if (info.isUpdateAvailable) {
                             updateOffer = info
-                            updateMessage = "${info.channel.name} update found: ${info.version}"
+                            updateMessage = tr("Доступна версия ${info.version}", "Update found: ${info.version}")
                         } else {
                             updateOffer = null
                             updateMessage = tr("Установлена последняя версия", "AKULA VPN is up to date")
@@ -225,7 +225,7 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
                     }
                 },
                 onFailure = { error ->
-                    updateMessage = error.message ?: "Update check failed"
+                    updateMessage = error.message ?: tr("Не удалось проверить обновления", "Update check failed")
                 }
             )
         }

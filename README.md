@@ -50,6 +50,18 @@ olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed
 а при первом подключении AKULA VPN ставит его тихо и поднимает туннель её службой (нужны права администратора —
 программа перезапускается с запросом UAC). OpenVPN на компьютере — в работе.
 
+## Выпуск обновления
+
+Приложения раз в сутки смотрят последний релиз этого репозитория (`/releases/latest`) и предлагают обновиться,
+если его версия новее установленной.
+
+1. Поднять `olcbox.version` / `olcbox.versionCode` в `gradle.properties`.
+2. Собрать: Android — `./gradlew :androidApp:assembleRelease` (тем же ключом, иначе обновление не встанет),
+   Windows — `./gradlew :desktopApp:packageMsi` (нужен WiX 3.14 в `PATH`).
+3. Релиз на GitHub с тегом `vX.Y.Z` и файлами `AKULA-VPN-X.Y.Z-android.apk` и
+   `AKULA-VPN-X.Y.Z-windows-amd64.msi` (в имени — `android` / `windows` + `amd64`: по ним приложение выбирает файл).
+4. Сборки пустые: ни профилей, ни адресов серверов, ни ключей.
+
 ## Лицензия
 
 GPL v3 (см. `LICENSE`). Компоненты и их лицензии — в `NOTICE` и папке `licenses/`.

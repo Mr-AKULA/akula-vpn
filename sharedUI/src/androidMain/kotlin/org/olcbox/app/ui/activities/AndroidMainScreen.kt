@@ -1,5 +1,6 @@
 package org.olcbox.app.ui.activities
 
+import org.olcbox.app.ui.i18n.tr
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
@@ -163,17 +164,17 @@ fun AndroidMainScreen(
     fun showUpdateResult(info: AppUpdateInfo) {
         if (info.isUpdateAvailable) {
             updateOffer = info
-            updateStatusText = "${info.channel.name} update available: ${info.version}"
+            updateStatusText = tr("Доступна версия ${info.version}", "Update available: ${info.version}")
         } else {
             updateOffer = null
-            updateStatusText = "Olcbox is up to date"
+            updateStatusText = tr("Установлена последняя версия", "AKULA VPN is up to date")
         }
     }
 
     fun checkUpdate(manual: Boolean) {
         val service = appUpdateService
         if (service == null) {
-            updateStatusText = "Update service unavailable"
+            updateStatusText = tr("Проверка обновлений недоступна", "Update service unavailable")
             return
         }
         scope.launch {
@@ -181,7 +182,7 @@ fun AndroidMainScreen(
             val checkStartedAt = kotlin.time.Clock.System.now().toEpochMilliseconds()
             if (!manual && !previousSettings.isUpdateCheckDue(checkStartedAt)) return@launch
 
-            updateStatusText = "Checking ${previousSettings.channel.name.lowercase()}..."
+            updateStatusText = tr("Проверяю обновления…", "Checking for updates…")
             val result = service.check(
                 previousSettings.channel,
                 vpnManager.subscriptionFetchProxy()
@@ -199,7 +200,7 @@ fun AndroidMainScreen(
                     }
                 },
                 onFailure = { error ->
-                    updateStatusText = error.message ?: "Update check failed"
+                    updateStatusText = error.message ?: tr("Не удалось проверить обновления", "Update check failed")
                 }
             )
         }
@@ -210,7 +211,7 @@ fun AndroidMainScreen(
         scope.launch {
             if (!updateInstaller.canRequestPackageInstalls()) {
                 updateInstaller.openUnknownSourcesSettings()
-                updateStatusText = "Allow Olcbox to install updates, then tap Download again"
+                updateStatusText = tr("Разрешите AKULA VPN устанавливать обновления и нажмите «Скачать» ещё раз", "Allow AKULA VPN to install updates, then tap Download again")
                 Toast.makeText(context, updateStatusText, Toast.LENGTH_LONG).show()
                 return@launch
             }

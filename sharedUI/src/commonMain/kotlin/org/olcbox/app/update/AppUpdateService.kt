@@ -13,14 +13,13 @@ import org.olcbox.app.data.datasource.createProxyHttpClient
 import org.olcbox.app.data.datasource.withProxyAuthentication
 import org.olcbox.app.data.identity.DeviceIdentityProvider
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
+import org.olcbox.app.ui.i18n.tr
 
 @Serializable
 enum class ReleaseChannel {
     Stable,
     Nightly
 }
-
-private const val AKULA_UPDATES_OFF = true
 
 data class ReleaseMirror(
     val name: String,
@@ -34,7 +33,7 @@ data class ReleaseMirror(
     companion object {
         val GitHub = ReleaseMirror(
             name = "GitHub",
-            repositoryUrl = "https://github.com/alananisimov/olcbox"
+            repositoryUrl = "https://github.com/Mr-AKULA/akula-vpn"
         )
     }
 }
@@ -66,10 +65,8 @@ class AppUpdateService(
         channel: ReleaseChannel,
         proxy: SubscriptionFetchProxy? = null
     ): Result<AppUpdateInfo> = runCatching {
-        // AKULA VPN: обновления исходного olcbox (github.com/alananisimov/olcbox) не предлагаем — это чужое
-        // приложение, «Download» увёл бы пользователя с AKULA VPN (эмулятор, 16.10.2026). Свои обновления —
-        // позже, с akula-hosting.ru.
-        if (AKULA_UPDATES_OFF) error("Обновления AKULA VPN приходят отдельно — проверка исходного olcbox выключена")
+        // AKULA VPN (17.10.2026): обновления — только релизы нашего репозитория Mr-AKULA/akula-vpn (тег vX.Y.Z,
+        // файлы AKULA-VPN-X.Y.Z-windows-amd64.msi / AKULA-VPN-X.Y.Z-android.apk); исходный olcbox не предлагаем.
         val release = fetchRelease(channel, proxy)
         val asset = selectAsset(release.assets, platform)
             ?: error(
@@ -121,15 +118,17 @@ class AppUpdateService(
             ReleaseChannel.Nightly -> "https://api.github.com/repos/${mirror.ownerRepo}/releases/tags/nightly"
         }
 
-        val hwid = deviceIdentityProvider.hwid()
+        // Идентификатор устройства (x-hwid из olcbox) GitHub не нужен — не отправляем
         val response = client.get(endpoint) {
             headers {
                 append(HttpHeaders.Accept, "application/vnd.github+json")
                 append(HttpHeaders.UserAgent, CurrentAppInfo.userAgent)
-                append("x-hwid", hwid)
             }
         }
 
+        if (response.status.value == 404) {
+            error(tr("Обновлений пока нет", "No updates yet"))
+        }
         if (response.status.value !in 200..299) {
             error("GitHub release request failed with HTTP ${response.status.value}")
         }

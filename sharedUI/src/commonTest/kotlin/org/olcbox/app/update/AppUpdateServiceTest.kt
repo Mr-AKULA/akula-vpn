@@ -21,10 +21,10 @@ class AppUpdateServiceTest {
     }
 
     @Test
-    fun updateSettingsNormalizeToNightlyChannel() {
-        val settings = AppUpdateSettings(channel = ReleaseChannel.Stable)
+    fun updateSettingsNormalizeToStableChannel() {
+        val settings = AppUpdateSettings(channel = ReleaseChannel.Nightly)
 
-        assertEquals(ReleaseChannel.Nightly, settings.normalized().channel)
+        assertEquals(ReleaseChannel.Stable, settings.normalized().channel)
     }
 
     @Test
@@ -117,7 +117,7 @@ class AppUpdateServiceTest {
     @Test
     fun updateSettingsPersistAndDueCheckUsesInterval() {
         val settings = AppUpdateSettings(
-            channel = ReleaseChannel.Nightly,
+            channel = ReleaseChannel.Stable,
             intervalHours = 6,
             lastCheckAtEpochMs = 1_000L,
             lastSeenUpdateVersion = "Nightly:nightly:apk"

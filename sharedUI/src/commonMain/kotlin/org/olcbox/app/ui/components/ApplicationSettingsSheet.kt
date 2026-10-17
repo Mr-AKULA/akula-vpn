@@ -327,7 +327,7 @@ private fun SharedSettingsHubContent(
 
         SharedNavigationRow(
             title = tr("Обновления", "Updates"),
-            value = tr("Nightly · раз в ${updateSettings.intervalHours} ч", "Nightly · every ${updateSettings.intervalHours}h"),
+            value = tr("Проверка раз в ${updateSettings.intervalHours} ч", "Checks every ${updateSettings.intervalHours}h"),
             icon = Icons.Outlined.Refresh,
             onClick = onUpdatesClick
         )
