@@ -133,3 +133,16 @@ dependencies {
     implementation(libs.androidx.activityCompose)
     implementation(libs.androidx.datastore.preferences)
 }
+
+// AKULA VPN: сборки выходят пустыми — без вшитых подключений, адресов и ключей (Павел 17.10.2026).
+// Каждый пользователь добавляет свою ссылку-подписку из консоли сервера. Старый механизм «своя сборка
+// у каждого» (assets/akula_preset.json) больше не используется — если файл появится, сборка остановится.
+val checkNoEmbeddedProfiles = tasks.register("checkNoEmbeddedProfiles") {
+    val preset = layout.projectDirectory.file("src/main/assets/akula_preset.json").asFile
+    doLast {
+        if (preset.exists()) {
+            throw GradleException("Сборка должна быть пустой: удалите ${preset.path} (подключения — только через подписку)")
+        }
+    }
+}
+tasks.named("preBuild") { dependsOn(checkNoEmbeddedProfiles) }

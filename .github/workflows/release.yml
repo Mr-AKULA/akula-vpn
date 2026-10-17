@@ -1,9 +1,9 @@
 name: Build Olcbox Releases
 
+# AKULA VPN: только ручной запуск — сборка исходного olcbox не знает наших AmneziaWG/OpenVPN и ключей подписи;
+# наши релизы собираются по README и выкладываются вручную
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, universal-carrier ]
 
 permissions:
   contents: read
