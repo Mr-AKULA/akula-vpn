@@ -70,7 +70,7 @@ internal class WindowsTunController(
     private suspend fun requestAdministratorRestart() {
         val processInfo = ProcessHandle.current().info()
         val currentCommand = processInfo.command().orElse(null)
-            ?: error("Olcbox cannot resolve its Windows launcher for administrator restart")
+            ?: error("AKULA VPN cannot resolve its Windows launcher for administrator restart")
         val currentArguments = processInfo.arguments().orElse(emptyArray()).toList()
             .filterNot { it.startsWith("olcbox:", ignoreCase = true) }
         val restartArguments = if (ELEVATED_START_ARGUMENT in currentArguments) {

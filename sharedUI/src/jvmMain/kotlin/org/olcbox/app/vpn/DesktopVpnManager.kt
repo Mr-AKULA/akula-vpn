@@ -29,6 +29,7 @@ import org.olcbox.app.vpn.desktop.LinuxPrivilege
 import org.olcbox.app.vpn.desktop.LinuxTunController
 import org.olcbox.app.vpn.desktop.OlcRtcCommand
 import org.olcbox.app.vpn.desktop.PacServer
+import org.olcbox.app.vpn.desktop.WindowsAwgController
 import org.olcbox.app.vpn.desktop.WindowsTunController
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -37,6 +38,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
+import org.olcbox.app.ui.i18n.tr
 
 class DesktopVpnManager private constructor(
     private val locationsRepository: LocationsRepository,
@@ -77,6 +79,8 @@ class DesktopVpnManager private constructor(
     private var generation = 0L
     private val linuxTunController = LinuxTunController(::addLog)
     private val windowsTunController = WindowsTunController(::addLog)
+    private val windowsAwgController = WindowsAwgController(::addLog)
+    @Volatile private var awgActive = false
 
     override fun needsPermission(): Boolean = false
 
@@ -192,6 +196,33 @@ class DesktopVpnManager private constructor(
         if (location == null || !location.isComplete()) {
             setStatus(VpnStatus.Error("No active location"))
             addLog("Add a valid location before starting desktop proxy")
+            return
+        }
+
+        // AmneziaWG/WireGuard (профиль из консоли AKULA): на Windows — служба официальной AmneziaWG
+        if (location.isAwg) {
+            if (DesktopPaths.os != DesktopOs.Windows) {
+                setStatus(VpnStatus.Error("AmneziaWG на этой системе пока не поддерживается"))
+                return
+            }
+            try {
+                windowsTunController.ensureAdministratorOrRequestRestart()
+                windowsAwgController.up(location.awgConfig)
+                awgActive = true
+                setStatus(VpnStatus.Connected)
+            } catch (e: Exception) {
+                addLog("AmneziaWG: ${e.message}")
+                setStatus(VpnStatus.Error(e.message ?: "AmneziaWG не подключился"))
+            }
+            return
+        }
+
+        // OpenVPN на компьютере — следующий этап (официальный OpenVPN со службой); пока честно говорим об этом
+        if (location.isOvpn) {
+            setStatus(VpnStatus.Error(tr(
+                "OpenVPN на компьютере пока не поддерживается — выберите подключение AmneziaWG",
+                "OpenVPN is not supported on desktop yet — choose an AmneziaWG connection"
+            )))
             return
         }
 
@@ -371,6 +402,13 @@ class DesktopVpnManager private constructor(
     }
 
     private suspend fun stopDesktopMode(finalStatus: Boolean) {
+        if (awgActive) {
+            setStatus(VpnStatus.Stopping)
+            runCatching { windowsAwgController.down() }.onFailure { addLog("AmneziaWG: ${it.message}") }
+            awgActive = false
+            if (finalStatus) setStatus(VpnStatus.Disconnected)
+            return
+        }
         if (_status.value is VpnStatus.Disconnected && process == null && tunProcess == null) {
             cancelProcessJobs()
             return

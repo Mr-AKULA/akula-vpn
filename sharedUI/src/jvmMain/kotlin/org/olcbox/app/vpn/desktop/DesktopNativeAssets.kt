@@ -42,7 +42,7 @@ internal object DesktopNativeAssets {
             ).distinct()
             DesktopOs.Windows -> listOf("olcrtc-windows-amd64.exe")
             DesktopOs.Linux -> listOf("olcrtc-linux-${desktopArch()}")
-            DesktopOs.Other -> error("Olcbox desktop supports macOS, Windows and Linux")
+            DesktopOs.Other -> error("AKULA VPN desktop supports macOS, Windows and Linux")
         }
     }
 
@@ -75,6 +75,13 @@ internal object DesktopNativeAssets {
         copyRuntimeAsset("wintun.dll")
         return binary
     }
+
+    /** Установщик AmneziaWG для Windows — WindowsAwgController ставит его тихо при первом подключении. */
+    fun resolveAmneziaWgMsi(): Path = resolveBinary(
+        fileName = "amneziawg-amd64.msi",
+        resourceName = "native/amneziawg-amd64.msi",
+        candidates = emptyList()
+    )
 
     private fun resolveBinary(
         fileName: String,

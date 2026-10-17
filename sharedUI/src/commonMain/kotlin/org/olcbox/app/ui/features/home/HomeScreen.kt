@@ -115,9 +115,9 @@ fun HomeScreen(
                 viewModel.restartVpnIfRunning()
 
                 val message = if (updatedCount > 0) {
-                    "Subscriptions updated: $updatedCount"
+                    tr("Обновлено подписок: $updatedCount", "Subscriptions updated: $updatedCount")
                 } else {
-                    "No subscriptions to update"
+                    tr("Нет подписок для обновления", "No subscriptions to update")
                 }
 
                 scope.launch {
@@ -148,9 +148,9 @@ fun HomeScreen(
                     scope.launch {
                         snackbarHostState.showSnackbar(
                             if (updatedCount > 0) {
-                                "Subscription updated"
+                                tr("Подписка обновлена", "Subscription updated")
                             } else {
-                                "Subscription is already up to date"
+                                tr("Подписка уже свежая", "Subscription is already up to date")
                             }
                         )
                     }
@@ -159,7 +159,7 @@ fun HomeScreen(
             onError = { message ->
                 updatingSubscriptionUrl = null
                 scope.launch {
-                    snackbarHostState.showSnackbar("Could not update subscription: $message")
+                    snackbarHostState.showSnackbar(tr("Не удалось обновить подписку: $message", "Could not update subscription: $message"))
                 }
             }
         )
@@ -371,7 +371,7 @@ fun HomeScreen(
                                     checked = manualSubscriptionAllowInsecure,
                                     onCheckedChange = { manualSubscriptionAllowInsecure = it }
                                 )
-                                Text(tr("Разрешить ссылку без https", "Allow link without https"))
+                                Text(tr("Разрешить http и самоподписанный сертификат", "Allow http and self-signed certificates"))
                             }
                         }
                     }

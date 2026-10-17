@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
@@ -114,7 +115,7 @@ val olcrtcRepoDir = olcrtcRepo.map { rootProject.file(it) }
 val generatedNativeResources = layout.buildDirectory.dir("generated/desktopNativeResources")
 val hevSocks5TunnelSourceDir = rootProject.layout.projectDirectory.dir("androidApp/src/main/jni/hev-socks5-tunnel")
 val currentBuildOs = OperatingSystem.current()
-val desktopPackageName = "Olcbox"
+val desktopPackageName = "AKULA VPN"
 val desktopPackageVersion = providers.gradleProperty("olcbox.version").orElse("1.0.0").get()
 val tun2SocksVersion = "2.6.0"
 val wintunVersion = "0.14.1"
@@ -364,6 +365,24 @@ if (currentBuildOs.isWindows) {
         outputFile.set(wintunWindowsOutput)
     }
 
+    // AmneziaWG для Windows (MIT, подписан Privacy Technologies OU) — AKULA VPN ставит его тихо при первом
+    // подключении AmneziaWG и поднимает туннель его службой (/installtunnelservice). Сумма — от проверенной
+    // по подписи сборки 3.1.0 (16.10.2026): другой файл в приложение не попадёт.
+    val downloadAmneziaWgWindowsAmd64 = tasks.register<DownloadFileTask>("downloadAmneziaWgWindowsAmd64") {
+        sourceUrl.set("https://github.com/amnezia-vpn/amneziawg-windows-client/releases/download/3.1.0/amneziawg-amd64-3.1.0.msi")
+        outputFile.set(generatedNativeResources.map { it.file("native/amneziawg-amd64.msi") })
+        doLast {
+            val file = outputFile.get().asFile
+            val sha = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            check(sha == "a1b48ea8699cd347832a3691d832004574ef8ad65bcf887611ac8acb99b7de8b") {
+                file.delete(); "AmneziaWG MSI: неожиданная SHA-256 $sha — файл подменён или версия другая"
+            }
+        }
+    }
+
+    desktopNativeAssetTasks.add(downloadAmneziaWgWindowsAmd64)
+    hostDesktopNativeAssetTasks.add(downloadAmneziaWgWindowsAmd64)
     desktopNativeAssetTasks.add(extractTun2SocksWindowsAmd64)
     desktopNativeAssetTasks.add(extractWintunWindowsAmd64)
     hostDesktopNativeAssetTasks.add(extractTun2SocksWindowsAmd64)
@@ -468,10 +487,10 @@ compose.desktop {
             }
             windows {
                 iconFile.set(project.file("appIcons/WindowsIcon.ico"))
-                menuGroup = "Olcbox"
+                menuGroup = "AKULA"
                 shortcut = true
                 dirChooser = true
-                upgradeUuid = "6f0aaf78-dbed-4745-9d95-9e63f10a30de"
+                upgradeUuid = "dbf85571-dc4f-40d4-b3ff-1a3766a5e1af" // свой: не обновлять поверх оригинального Olcbox
             }
             macOS {
                 iconFile.set(project.file("appIcons/MacosIcon.icns"))

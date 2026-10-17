@@ -73,8 +73,10 @@ fun StartButton(
             .padding(8.dp)
             .background(color = MaterialTheme.colorScheme.surface, shape = CircleShape)
             .padding(6.dp)
+            // Цвет — фоном с формой, а не clip + background: на Windows (Compose 1.13) после clip заливка
+            // не рисовалась, и кнопка «Выключить» выглядела погасшей (проверено в VMware 17.10.2026).
+            .background(color = mainButtonColor, shape = CircleShape)
             .clip(CircleShape)
-            .background(color = mainButtonColor)
             .clickable(enabled = enabled) {
                 onClick()
             },

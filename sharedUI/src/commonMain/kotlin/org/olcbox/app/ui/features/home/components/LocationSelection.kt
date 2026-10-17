@@ -356,7 +356,7 @@ private fun SubscriptionGroupHeader(
     modifier: Modifier = Modifier
 ) {
     val first = locations.firstOrNull()
-    val title = first?.subscriptionTitle().orEmpty().ifBlank { "Subscriptions" }
+    val title = first?.subscriptionTitle().orEmpty().ifBlank { tr("Подписки", "Subscriptions") }
     val description = first?.subscriptionDescription()
     val details = first?.subscriptionDetails()
 
@@ -472,7 +472,7 @@ private fun LocationItem.subscriptionTitle(): String {
 
     return listOfNotNull(
         subscription?.icon?.takeIf { it.isNotBlank() },
-        subscription?.name?.takeIf { it.isNotBlank() } ?: "Subscriptions"
+        subscription?.name?.takeIf { it.isNotBlank() } ?: tr("Подписки", "Subscriptions")
     ).joinToString(" ")
 }
 

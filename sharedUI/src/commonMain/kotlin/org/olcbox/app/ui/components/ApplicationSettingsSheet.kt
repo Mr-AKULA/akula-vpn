@@ -327,7 +327,7 @@ private fun SharedSettingsHubContent(
 
         SharedNavigationRow(
             title = tr("Обновления", "Updates"),
-            value = "Nightly · every ${updateSettings.intervalHours}h",
+            value = tr("Nightly · раз в ${updateSettings.intervalHours} ч", "Nightly · every ${updateSettings.intervalHours}h"),
             icon = Icons.Outlined.Refresh,
             onClick = onUpdatesClick
         )
@@ -1687,8 +1687,7 @@ private enum class SharedSettingsRoute {
 private fun Int.subscriptionSummary(): String {
     return when (this) {
         0 -> tr("Подписок нет", "No subscriptions")
-        1 -> "1 subscription"
-        else -> "$this subscriptions"
+        else -> tr("Подписок: $this", if (this == 1) "1 subscription" else "$this subscriptions")
     }
 }
 

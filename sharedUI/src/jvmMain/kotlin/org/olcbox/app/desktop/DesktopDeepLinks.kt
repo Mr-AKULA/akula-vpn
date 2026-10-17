@@ -118,7 +118,7 @@ class DesktopDeepLinks private constructor(
                     }
                     Thread.sleep(50)
                 } while (System.nanoTime() < deadline)
-                error("Could not deliver the launch to the running Olcbox app")
+                error("Could not deliver the launch to the running AKULA VPN app")
             } catch (error: Exception) {
                 channel.close()
                 throw error
@@ -153,17 +153,17 @@ object DesktopDeepLinkRegistration {
             ?: ProcessHandle.current().info().command().orElse(null)
             ?: return
         val path = Path.of(executable).toAbsolutePath()
-        // A Gradle/IDE JVM is not a usable application launcher.
-        if (System.getenv("APPIMAGE").isNullOrBlank() &&
-            !path.fileName.toString().equals("Olcbox", ignoreCase = true) &&
-            !path.fileName.toString().equals("Olcbox.exe", ignoreCase = true)) return
+        // A Gradle/IDE JVM is not a usable application launcher; the jpackage launcher sets jpackage.app-version.
+        if (System.getenv("APPIMAGE").isNullOrBlank() && System.getProperty("jpackage.app-version") == null) return
         runCatching {
             when (DesktopPaths.os) {
                 DesktopOs.Windows -> {
                     val key = "HKCU\\Software\\Classes\\olcbox"
-                    command("reg.exe", "add", key, "/ve", "/d", "URL:Olcbox subscription", "/f")
+                    command("reg.exe", "add", key, "/ve", "/d", "URL:AKULA VPN subscription", "/f")
                     command("reg.exe", "add", key, "/v", "URL Protocol", "/d", "", "/f")
-                    command("reg.exe", "add", "$key\\shell\\open\\command", "/ve", "/d", "\"$path\" \"%1\"", "/f")
+                    // Java на Windows не экранирует кавычки внутри аргумента — без \" reg.exe получал обрывок
+                    // строки и не создавал команду открытия (найдено в VMware 17.10.2026)
+                    command("reg.exe", "add", "$key\\shell\\open\\command", "/ve", "/d", "\\\"$path\\\" \\\"%1\\\"", "/f")
                 }
                 DesktopOs.Linux -> {
                     val dataHome = System.getenv("XDG_DATA_HOME")?.takeIf { it.startsWith('/') }
@@ -196,7 +196,7 @@ object DesktopDeepLinkRegistration {
         return """
             [Desktop Entry]
             Type=Application
-            Name=Olcbox
+            Name=AKULA VPN
             Exec=$quoted %u
             Icon=olcbox
             Categories=Network;Utility;

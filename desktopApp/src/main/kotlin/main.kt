@@ -48,8 +48,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.InternalComposeUiApi
+import org.olcbox.app.ui.i18n.tr
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.registerSkikoComposeImplementation
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -141,7 +144,11 @@ private class DesktopAppDependencies {
 
 private const val WINDOWS_ELEVATED_START_ARGUMENT = "--olcbox-start-vpn-after-elevation"
 
+@OptIn(InternalComposeUiApi::class)
 fun main(args: Array<String>) {
+    // Compose 1.13 регистрирует графику Skiko только с первым окном, а значок в трее рисуется раньше —
+    // без этого вызова приложение падает на старте («No Compose UI graphics implementation is registered»).
+    registerSkikoComposeImplementation()
     val launchArgs = if (args.any { it.startsWith("olcbox:", ignoreCase = true) }) {
         args.filterNot { it == WINDOWS_ELEVATED_START_ARGUMENT }.toTypedArray()
     } else args
@@ -210,7 +217,7 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
                             updateMessage = "${info.channel.name} update found: ${info.version}"
                         } else {
                             updateOffer = null
-                            updateMessage = "Olcbox is up to date"
+                            updateMessage = tr("Установлена последняя версия", "AKULA VPN is up to date")
                         }
                     } else {
                         updateOffer = null
@@ -276,22 +283,22 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
     Tray(
         state = trayState,
         icon = painterResource("LinuxIcon.png"),
-        tooltip = "Olcbox",
+        tooltip = "AKULA VPN",
         menu = {
-            Item("Open", onClick = { isWindowVisible = true })
+            Item(tr("Открыть", "Open"), onClick = { isWindowVisible = true })
             Item(
-                if (trayHomeState.isVpnConnected || trayHomeState.isVpnLoading) "Stop" else "Start",
+                if (trayHomeState.isVpnConnected || trayHomeState.isVpnLoading) tr("Выключить", "Stop") else tr("Включить", "Start"),
                 enabled = trayHomeState.isVpnConnected || trayHomeState.isVpnLoading || trayHomeState.canStartVpn,
                 onClick = {
                     dependencies.homeViewModel.ToggleVpn()
                 }
             )
-            Item("Settings", onClick = {
+            Item(tr("Настройки", "Settings"), onClick = {
                 isWindowVisible = true
                 showDesktopSettings = true
             })
             Separator()
-            Item("Quit", onClick = {
+            Item(tr("Выход", "Quit"), onClick = {
                 dependencies.close()
                 exitApplication()
             })
@@ -299,7 +306,8 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
     )
 
     Window(
-        title = "olcbox",
+        title = "AKULA VPN",
+        icon = painterResource("LinuxIcon.png"),
         visible = isWindowVisible,
         state = rememberWindowState(width = 430.dp, height = 780.dp),
         onCloseRequest = {
@@ -793,14 +801,14 @@ private fun desktopSubscriptionItems(items: List<LocationItem>): List<Subscripti
 }
 
 private fun chooseConfigFile(owner: Frame): File? {
-    val dialog = FileDialog(owner, "Import Olcbox Config", FileDialog.LOAD)
+    val dialog = FileDialog(owner, tr("Импорт профиля AKULA VPN", "Import AKULA VPN config"), FileDialog.LOAD)
     dialog.isVisible = true
 
     return dialog.files.firstOrNull()
 }
 
 private fun chooseSaveFile(owner: Frame, defaultName: String): File? {
-    val dialog = FileDialog(owner, "Save Olcbox Logs", FileDialog.SAVE)
+    val dialog = FileDialog(owner, tr("Сохранить журнал AKULA VPN", "Save AKULA VPN logs"), FileDialog.SAVE)
     dialog.file = defaultName
     dialog.isVisible = true
 

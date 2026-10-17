@@ -9,7 +9,7 @@
 - автопереключение серверов (включается в настройках), язык — как в системе / русский / English.
 
 Основано на [olcbox](https://github.com/alananisimov/olcbox) (Kotlin Multiplatform + Compose). Платформы: Android
-(готово), Windows и desktop — в работе.
+(готово), Windows (AmneziaWG — готово, OpenVPN — в работе).
 
 *English:* AKULA VPN is a client for self-hosted AKULA VPN servers — AmneziaWG/WireGuard, OpenVPN and an
 olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed under GPL v3.
@@ -36,6 +36,19 @@ olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed
    ```
    Подпись релиза — свой ключ: файл свойств по пути из `AKULA_KEYSTORE_PROPERTIES` или
    `~/.akula-secrets/android-signing/akula-vpn-keystore.properties` (в репозитории ключей нет).
+
+## Сборка (Windows)
+
+Нужны JDK 21 (с jpackage), Go и MinGW-w64 (gcc) в `PATH`.
+
+```sh
+./gradlew :desktopApp:createDistributable -x :sharedUI:olcrtc-bin:buildOlcrtcAndroidAar
+```
+
+Готовая программа — `desktopApp/build/compose/binaries/main/app/AKULA VPN/`. AmneziaWG на Windows работает через
+официальную AmneziaWG (MIT, подписанный драйвер): при сборке скачивается её установщик 3.1.0 с проверкой SHA-256,
+а при первом подключении AKULA VPN ставит его тихо и поднимает туннель её службой (нужны права администратора —
+программа перезапускается с запросом UAC). OpenVPN на компьютере — в работе.
 
 ## Лицензия
 
