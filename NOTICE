@@ -18,4 +18,18 @@ AKULA VPN is based on and includes the following components:
   (licenses/ics-openvpn-LICENSE.txt), which includes OpenVPN, OpenSSL/mbedTLS, LZ4 and other
   components under their own licenses — https://github.com/schwabe/ics-openvpn — built by tools/ics-openvpn
 
+Windows (bundled unmodified, signed by their authors; downloaded at build time with SHA-256 checks):
+
+- AmneziaWG for Windows (amneziawg.exe) — Copyright (C) 2018-2022 WireGuard LLC, AmneziaVPN — MIT License
+  (licenses/amneziawg-windows-MIT.txt) — https://github.com/amnezia-vpn/amneziawg-windows-client
+- Wintun (wintun.dll) — Copyright (C) WireGuard LLC — Prebuilt Binaries License
+  (licenses/wintun-prebuilt-LICENSE.txt) — https://www.wintun.net
+- OpenVPN 2.7 (openvpn.exe, tapctl.exe) — Copyright (C) 2002-2026 OpenVPN Inc — GNU GPL v2 with the OpenSSL
+  exception (licenses/openvpn-COPYING.txt) — https://github.com/OpenVPN/openvpn
+- OpenSSL 3 (libcrypto, libssl) — Apache License 2.0 (licenses/openssl-Apache-2.0.txt) — https://www.openssl.org
+- pkcs11-helper — Copyright (c) 2005-2018 Alon Bar-Lev — BSD or GPL (licenses/pkcs11-helper-COPYING.txt)
+- ovpn-dco-win driver — Copyright 2021 OpenVPN, Inc — MIT License (licenses/ovpn-dco-win-MIT.txt)
+  https://github.com/OpenVPN/ovpn-dco-win
+- Microsoft Visual C++ runtime (vcruntime140.dll) — redistributable under Microsoft's terms
+
 Fonts: Manrope and Unbounded — SIL Open Font License 1.1 (Google Fonts).

@@ -30,6 +30,7 @@ import org.olcbox.app.vpn.desktop.LinuxTunController
 import org.olcbox.app.vpn.desktop.OlcRtcCommand
 import org.olcbox.app.vpn.desktop.PacServer
 import org.olcbox.app.vpn.desktop.WindowsAwgController
+import org.olcbox.app.vpn.desktop.WindowsOvpnController
 import org.olcbox.app.vpn.desktop.WindowsTunController
 import java.io.IOException
 import java.net.InetSocketAddress
@@ -81,6 +82,15 @@ class DesktopVpnManager private constructor(
     private val windowsTunController = WindowsTunController(::addLog)
     private val windowsAwgController = WindowsAwgController(::addLog)
     @Volatile private var awgActive = false
+    private val windowsOvpnController = WindowsOvpnController(::addLog) { reason ->
+        // openvpn.exe завершился сам (сервер пропал, сеть) — показываем, а не висим в «Подключено»
+        if (ovpnActive) {
+            ovpnActive = false
+            addLog(reason)
+            setStatus(VpnStatus.Error(reason))
+        }
+    }
+    @Volatile private var ovpnActive = false
 
     override fun needsPermission(): Boolean = false
 
@@ -217,12 +227,24 @@ class DesktopVpnManager private constructor(
             return
         }
 
-        // OpenVPN на компьютере — следующий этап (официальный OpenVPN со службой); пока честно говорим об этом
+        // OpenVPN (профиль из консоли AKULA): на Windows — встроенный openvpn.exe 2.7 с драйвером ovpn-dco
         if (location.isOvpn) {
-            setStatus(VpnStatus.Error(tr(
-                "OpenVPN на компьютере пока не поддерживается — выберите подключение AmneziaWG",
-                "OpenVPN is not supported on desktop yet — choose an AmneziaWG connection"
-            )))
+            if (DesktopPaths.os != DesktopOs.Windows) {
+                setStatus(VpnStatus.Error(tr(
+                    "OpenVPN на этой системе пока не поддерживается",
+                    "OpenVPN is not supported on this system yet"
+                )))
+                return
+            }
+            try {
+                windowsTunController.ensureAdministratorOrRequestRestart()
+                windowsOvpnController.up(location.ovpnConfig)
+                ovpnActive = true
+                setStatus(VpnStatus.Connected)
+            } catch (e: Exception) {
+                addLog("OpenVPN: ${e.message}")
+                setStatus(VpnStatus.Error(e.message ?: tr("OpenVPN не подключился", "OpenVPN failed to connect")))
+            }
             return
         }
 
@@ -402,6 +424,13 @@ class DesktopVpnManager private constructor(
     }
 
     private suspend fun stopDesktopMode(finalStatus: Boolean) {
+        if (ovpnActive || windowsOvpnController.isRunning) {
+            setStatus(VpnStatus.Stopping)
+            ovpnActive = false
+            runCatching { windowsOvpnController.down() }.onFailure { addLog("OpenVPN: ${it.message}") }
+            if (finalStatus) setStatus(VpnStatus.Disconnected)
+            return
+        }
         if (awgActive) {
             setStatus(VpnStatus.Stopping)
             runCatching { windowsAwgController.down() }.onFailure { addLog("AmneziaWG: ${it.message}") }

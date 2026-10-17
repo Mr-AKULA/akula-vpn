@@ -65,12 +65,12 @@ class HomeScreenViewModel(
             vpnManager.status.collect { status ->
                 _state.update {
                     when (status) {
-                        VpnStatus.Connected -> it.copy(isVpnConnected = true, isVpnLoading = false)
-                        VpnStatus.Connecting -> it.copy(isVpnConnected = false, isVpnLoading = true)
+                        VpnStatus.Connected -> it.copy(isVpnConnected = true, isVpnLoading = false, vpnError = null)
+                        VpnStatus.Connecting -> it.copy(isVpnConnected = false, isVpnLoading = true, vpnError = null)
                         VpnStatus.Reconnecting -> it.copy(isVpnConnected = true, isVpnLoading = true)
                         VpnStatus.Stopping -> it.copy(isVpnConnected = false, isVpnLoading = false)
                         VpnStatus.Disconnected -> it.copy(isVpnConnected = false, isVpnLoading = false)
-                        is VpnStatus.Error -> it.copy(isVpnConnected = false, isVpnLoading = false)
+                        is VpnStatus.Error -> it.copy(isVpnConnected = false, isVpnLoading = false, vpnError = status.message)
                     }
                 }
             }
@@ -442,7 +442,8 @@ data class HomeScreenState(
     val configData: LocationConfig,
     val shouldShowConfigInvalidReminder: Boolean,
     val canStartVpn: Boolean,
-    val startBlockedReason: String?
+    val startBlockedReason: String?,
+    val vpnError: String? = null
 )
 
 private const val MIN_SUBSCRIPTION_REFRESH_WAIT_MS = 1_000L

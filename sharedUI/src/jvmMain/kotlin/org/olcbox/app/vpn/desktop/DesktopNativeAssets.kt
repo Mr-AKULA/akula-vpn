@@ -76,12 +76,22 @@ internal object DesktopNativeAssets {
         return binary
     }
 
-    /** Установщик AmneziaWG для Windows — WindowsAwgController ставит его тихо при первом подключении. */
-    fun resolveAmneziaWgMsi(): Path = resolveBinary(
-        fileName = "amneziawg-amd64.msi",
-        resourceName = "native/amneziawg-amd64.msi",
-        candidates = emptyList()
-    )
+    /**
+     * Модули туннелей Windows (AmneziaWG, OpenVPN, драйвер ovpn-dco) — в папке программы:
+     * Program Files/AKULA VPN/app/resources/vpn. Их запускает служба SYSTEM, поэтому — никаких копий
+     * в папку пользователя (туда может писать любая программа). При запуске из исходников — из build.
+     */
+    fun windowsVpnTool(relative: String): Path {
+        val packaged = System.getProperty("compose.application.resources.dir")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { Path(it).resolve("vpn").resolve(relative) }
+        val candidates = listOfNotNull(packaged) + projectRootCandidates().map {
+            it.resolve("desktopApp").resolve("build").resolve("generated").resolve("akulaAppResources")
+                .resolve("windows-x64").resolve("vpn").resolve(relative)
+        }
+        return candidates.firstOrNull { it.exists() }
+            ?: error("Нет модуля туннеля: vpn/$relative — переустановите AKULA VPN")
+    }
 
     private fun resolveBinary(
         fileName: String,

@@ -190,7 +190,8 @@ fun HomeScreen(
         ) {
             RelayStatus(
                 isActive = state.isVpnConnected,
-                requiresSetup = requiresSetup
+                requiresSetup = requiresSetup,
+                errorText = state.vpnError
             )
 
             Spacer(modifier = Modifier.height(16.dp))

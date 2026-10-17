@@ -365,24 +365,84 @@ if (currentBuildOs.isWindows) {
         outputFile.set(wintunWindowsOutput)
     }
 
-    // AmneziaWG для Windows (MIT, подписан Privacy Technologies OU) — AKULA VPN ставит его тихо при первом
-    // подключении AmneziaWG и поднимает туннель его службой (/installtunnelservice). Сумма — от проверенной
-    // по подписи сборки 3.1.0 (16.10.2026): другой файл в приложение не попадёт.
-    val downloadAmneziaWgWindowsAmd64 = tasks.register<DownloadFileTask>("downloadAmneziaWgWindowsAmd64") {
-        sourceUrl.set("https://github.com/amnezia-vpn/amneziawg-windows-client/releases/download/3.1.0/amneziawg-amd64-3.1.0.msi")
-        outputFile.set(generatedNativeResources.map { it.file("native/amneziawg-amd64.msi") })
+    // AKULA VPN для Windows — всё в одной программе (Павел 17.10.2026: «как на телефоне»). Туннели — официальные
+    // подписанные модули, без отдельных программ: AmneziaWG (amneziawg.exe + wintun.dll, MIT) и OpenVPN 2.7
+    // (openvpn.exe + OpenSSL, GPL) с драйвером ovpn-dco (подписан Microsoft). Кладутся в папку программы
+    // (Program Files/AKULA VPN/app/resources/vpn) — служба SYSTEM не должна запускать файлы из папки пользователя.
+    // Суммы — от проверенных сборок (подпись Authenticode / GPG OpenVPN, 17.10.2026): другой файл не попадёт.
+    fun sha256Of(file: File) = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
+        .joinToString("") { "%02x".format(it) }
+    val vpnDownloads = layout.buildDirectory.dir("downloads/vpn")
+    fun verifiedDownload(name: String, url: String, sha: String) = tasks.register<DownloadFileTask>(name) {
+        sourceUrl.set(url)
+        outputFile.set(vpnDownloads.map { it.file(url.substringAfterLast('/')) })
+        onlyIf { !outputFile.get().asFile.exists() || sha256Of(outputFile.get().asFile) != sha }
         doLast {
             val file = outputFile.get().asFile
-            val sha = MessageDigest.getInstance("SHA-256").digest(file.readBytes())
-                .joinToString("") { "%02x".format(it) }
-            check(sha == "a1b48ea8699cd347832a3691d832004574ef8ad65bcf887611ac8acb99b7de8b") {
-                file.delete(); "AmneziaWG MSI: неожиданная SHA-256 $sha — файл подменён или версия другая"
-            }
+            val actual = sha256Of(file)
+            check(actual == sha) { file.delete(); "${file.name}: неожиданная SHA-256 $actual — файл подменён или версия другая" }
         }
     }
-
-    desktopNativeAssetTasks.add(downloadAmneziaWgWindowsAmd64)
-    hostDesktopNativeAssetTasks.add(downloadAmneziaWgWindowsAmd64)
+    val downloadAmneziaWgWindowsAmd64 = verifiedDownload(
+        "downloadAmneziaWgWindowsAmd64",
+        "https://github.com/amnezia-vpn/amneziawg-windows-client/releases/download/3.1.0/amneziawg-amd64-3.1.0.msi",
+        "a1b48ea8699cd347832a3691d832004574ef8ad65bcf887611ac8acb99b7de8b"
+    )
+    val downloadOpenVpnWindowsAmd64 = verifiedDownload(
+        "downloadOpenVpnWindowsAmd64",
+        "https://swupdate.openvpn.org/community/releases/OpenVPN-2.7.8-I001-amd64.msi",
+        "1ea61a3056905b90607d4b0f084c04e5cf3043e07cf192d9cd44b0474f29cc49"
+    )
+    val downloadOvpnDcoWindowsAmd64 = verifiedDownload(
+        "downloadOvpnDcoWindowsAmd64",
+        "https://github.com/OpenVPN/ovpn-dco-win/releases/download/2.8.13/ovpn-dco-win-2.8.13-amd64.zip",
+        "7e3bfa83b55771e352c3aa65281a93948674833502302fc02dcb546b957ca9d4"
+    )
+    val windowsVpnTools = layout.buildDirectory.dir("generated/akulaAppResources")
+    val prepareWindowsVpnTools = tasks.register("prepareWindowsVpnTools") {
+        dependsOn(downloadAmneziaWgWindowsAmd64, downloadOpenVpnWindowsAmd64, downloadOvpnDcoWindowsAmd64)
+        val awgMsi = downloadAmneziaWgWindowsAmd64.flatMap { it.outputFile }
+        val ovpnMsi = downloadOpenVpnWindowsAmd64.flatMap { it.outputFile }
+        val dcoZip = downloadOvpnDcoWindowsAmd64.flatMap { it.outputFile }
+        inputs.files(awgMsi, ovpnMsi, dcoZip)
+        outputs.dir(windowsVpnTools)
+        val tmp = temporaryDir
+        doLast {
+            val root = windowsVpnTools.get().asFile.resolve("windows-x64/vpn")
+            root.deleteRecursively()
+            // Административная распаковка MSI: только файлы, без установки и без следов в системе
+            fun unpackMsi(msi: File, into: File) {
+                into.deleteRecursively(); into.mkdirs()
+                val p = ProcessBuilder("msiexec.exe", "/a", msi.absolutePath, "/qn", "TARGETDIR=${into.absolutePath}")
+                    .inheritIO().start()
+                check(p.waitFor() == 0) { "msiexec /a ${msi.name}: код ${p.exitValue()}" }
+            }
+            val awgTmp = tmp.resolve("awg"); unpackMsi(awgMsi.get().asFile, awgTmp)
+            val ovpnTmp = tmp.resolve("ovpn"); unpackMsi(ovpnMsi.get().asFile, ovpnTmp)
+            fun copyInto(dir: File, names: List<String>, target: File) {
+                target.mkdirs()
+                names.forEach { dir.resolve(it).copyTo(target.resolve(it), overwrite = true) }
+            }
+            copyInto(awgTmp.resolve("AmneziaWG"), listOf("amneziawg.exe", "wintun.dll"), root.resolve("awg"))
+            copyInto(
+                ovpnTmp.resolve("OpenVPN/bin"),
+                listOf("openvpn.exe", "tapctl.exe", "libcrypto-3-x64.dll", "libssl-3-x64.dll", "libpkcs11-helper-1.dll", "vcruntime140.dll"),
+                root.resolve("ovpn")
+            )
+            ZipFile(dcoZip.get().asFile).use { zip ->
+                zip.entries().asSequence().filter { !it.isDirectory }.forEach { entry ->
+                    val out = root.resolve("ovpn/dco").resolve(entry.name).normalize()
+                    check(out.startsWith(root)) { "Подозрительный путь в архиве: ${entry.name}" }
+                    out.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input -> out.outputStream().use { input.copyTo(it) } }
+                }
+            }
+            listOf("awg/amneziawg.exe", "awg/wintun.dll", "ovpn/openvpn.exe", "ovpn/dco/win10/ovpn-dco.inf", "ovpn/dco/win11/ovpn-dco.inf")
+                .forEach { check(root.resolve(it).isFile) { "Нет $it после распаковки" } }
+        }
+    }
+    hostDesktopNativeAssetTasks.add(prepareWindowsVpnTools)
+    desktopNativeAssetTasks.add(prepareWindowsVpnTools)
     desktopNativeAssetTasks.add(extractTun2SocksWindowsAmd64)
     desktopNativeAssetTasks.add(extractWintunWindowsAmd64)
     hostDesktopNativeAssetTasks.add(extractTun2SocksWindowsAmd64)
@@ -477,6 +537,8 @@ compose.desktop {
         }
 
         nativeDistributions {
+            // Модули туннелей Windows (prepareWindowsVpnTools) → <папка программы>/app/resources/vpn
+            appResourcesRootDir.set(layout.buildDirectory.dir("generated/akulaAppResources"))
             modules("jdk.httpserver")
             targetFormats(*currentBuildTargetFormats)
             packageName = desktopPackageName
@@ -489,7 +551,7 @@ compose.desktop {
                 iconFile.set(project.file("appIcons/WindowsIcon.ico"))
                 menuGroup = "AKULA"
                 shortcut = true
-                dirChooser = true
+                dirChooser = true // папку выбирает пользователь; модули туннелей проверяются по подписи перед запуском
                 upgradeUuid = "dbf85571-dc4f-40d4-b3ff-1a3766a5e1af" // свой: не обновлять поверх оригинального Olcbox
             }
             macOS {
@@ -585,5 +647,51 @@ if (currentBuildOs.isLinux) {
 
     tasks.matching { it.name == "packageReleaseDistributionForCurrentOS" }.configureEach {
         dependsOn(packageReleaseLinuxAppImage)
+    }
+}
+
+// Модули туннелей должны быть готовы до того, как Compose соберёт ресурсы программы
+if (currentBuildOs.isWindows) {
+    tasks.matching { it.name == "prepareAppResources" }.configureEach { dependsOn("prepareWindowsVpnTools") }
+}
+
+// Установщики AKULA VPN для Windows: jpackage упаковывает готовую программу (createDistributable) с нашим шаблоном
+// WiX (desktopApp/wix/main.wxs) — при удалении и обновлении он гасит туннели (служба AmneziaWG, openvpn.exe, адаптер).
+// Свои задачи, а не packageMsi/packageExe Compose: тот очищает папку ресурсов jpackage и свой шаблон не подложить.
+// Файлы — AKULA-VPN-windows.exe/.msi без версии: постоянная ссылка …/releases/latest/download/<файл> (сайт, консоль).
+if (currentBuildOs.isWindows) {
+    val akulaInstallers = layout.buildDirectory.dir("akula-installers")
+    listOf("msi", "exe").forEach { type ->
+        tasks.register<Exec>("packageAkula${type.replaceFirstChar { it.uppercase() }}") {
+            group = "distribution"
+            description = "AKULA VPN installer ($type) with tunnel cleanup on uninstall"
+            dependsOn("createDistributable")
+            val appImage = layout.buildDirectory.dir("compose/binaries/main/app/$desktopPackageName")
+            val out = akulaInstallers.map { it.dir(type) }
+            inputs.dir(appImage)
+            inputs.dir(layout.projectDirectory.dir("wix"))
+            outputs.dir(out)
+            doFirst { out.get().asFile.apply { deleteRecursively(); mkdirs() } }
+            val jpackage = File(System.getProperty("java.home"), "bin/jpackage.exe")
+            commandLine(
+                jpackage.absolutePath,
+                "--type", type,
+                "--app-image", appImage.get().asFile.absolutePath,
+                "--name", desktopPackageName,
+                "--app-version", desktopPackageVersion,
+                "--resource-dir", layout.projectDirectory.dir("wix").asFile.absolutePath,
+                "--icon", layout.projectDirectory.file("appIcons/WindowsIcon.ico").asFile.absolutePath,
+                // папку выбирает пользователь (Павел 17.10.2026); по умолчанию Program Files. Модули туннелей перед запуском
+                // проверяются по цифровой подписи (WindowsVpnToolsVerifier) — подменить их из папки пользователя нельзя
+                "--win-dir-chooser", "--win-shortcut", "--win-menu", "--win-menu-group", "AKULA",
+                "--win-upgrade-uuid", "dbf85571-dc4f-40d4-b3ff-1a3766a5e1af",
+                "--dest", out.get().asFile.absolutePath
+            )
+            doLast {
+                val built = out.get().asFile.listFiles { f -> f.extension == type }?.singleOrNull()
+                    ?: error("jpackage не создал .$type")
+                built.renameTo(out.get().asFile.resolve("AKULA-VPN-windows.$type"))
+            }
+        }
     }
 }

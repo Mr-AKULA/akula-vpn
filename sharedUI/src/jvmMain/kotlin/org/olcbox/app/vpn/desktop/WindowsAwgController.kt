@@ -6,31 +6,29 @@ import kotlinx.coroutines.withContext
 import org.olcbox.app.desktop.DesktopPaths
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 
 /**
- * AmneziaWG / WireGuard в AKULA VPN для Windows (16.10.2026).
+ * AmneziaWG / WireGuard в AKULA VPN для Windows.
  *
- * Туннель поднимает официальная AmneziaWG для Windows (MIT, подписанный драйвер): AKULA VPN тихо ставит её
- * из встроенного установщика (native/amneziawg-amd64.msi, SHA-256 проверяется при сборке) и запускает туннель
- * её службой — `amneziawg.exe /installtunnelservice <файл>`: маршруты, DNS и защита от утечек — её забота.
- * Проверено вручную на Windows 10 (VMware) против лабораторного сервера vm1.
- * Нужны права администратора — их запрашивает DesktopVpnManager (перезапуск с UAC, как для режима TUN).
+ * Всё внутри программы (Павел 17.10.2026: «в одном приложении, как на телефоне»): официальный amneziawg.exe
+ * (MIT, подписан Privacy Technologies OU) и wintun.dll идут с программой, отдельная AmneziaWG не ставится;
+ * запускаются из защищённой папки с проверкой подписи (WindowsVpnTools).
+ * Туннель — служба `amneziawg.exe /installtunnelservice <файл>`: маршруты, DNS и защита от утечек — её забота;
+ * драйвер Wintun Windows подключает сама и убирает вместе с туннелем.
+ * Служба — с ручным запуском: после перезагрузки VPN не поднимается сам, пока приложение показывает «выключено».
+ * Нужны права администратора — их запрашивает DesktopVpnManager (перезапуск с UAC).
  */
 class WindowsAwgController(private val log: (String) -> Unit) {
-    private val exe: Path = Paths.get(System.getenv("ProgramFiles") ?: "C:\\Program Files", "AmneziaWG", "amneziawg.exe")
     private val config: Path get() = DesktopPaths.appDataDir().resolve("tunnels").resolve("$TUNNEL.conf")
 
     suspend fun up(configText: String) = withContext(Dispatchers.IO) {
-        ensureInstalled()
-        if (isUp()) down()
+        down()
+        val exe = WindowsVpnTools.path("awg/amneziawg.exe")
         Files.createDirectories(config.parent)
         Files.writeString(config, configText)
         val code = run(exe.toString(), "/installtunnelservice", config.toString())
         if (code != 0) error("AmneziaWG не запустил туннель (код $code)")
-        // Служба туннеля ставится с автозапуском: после перезагрузки VPN поднимался сам, а приложение показывало
-        // «выключено» (и при недоступном сервере пропадал интернет). Запуск — только из приложения.
         run("sc.exe", "config", SERVICE, "start=", "demand")
         repeat(30) {
             if (isUp()) { log("AmneziaWG: туннель запущен"); return@withContext }
@@ -40,29 +38,31 @@ class WindowsAwgController(private val log: (String) -> Unit) {
     }
 
     suspend fun down() = withContext(Dispatchers.IO) {
-        if (!Files.exists(exe)) return@withContext
-        run(exe.toString(), "/uninstalltunnelservice", TUNNEL)
+        // Остановка средствами Windows (sc), без amneziawg.exe: тот без службы показывает окно ошибки и ждёт,
+        // а служба могла остаться от прошлой версии программы. Остановленная служба сама убирает адаптер и маршруты.
+        if (!serviceExists()) return@withContext
+        run("sc.exe", "stop", SERVICE)
+        for (attempt in 1..40) {
+            if (!scQuery().second.contains("_PENDING") && !isUp()) break
+            delay(250)
+        }
+        run("sc.exe", "delete", SERVICE)
         repeat(20) {
-            if (!isUp()) { log("AmneziaWG: туннель остановлен"); return@withContext }
+            if (!serviceExists()) { log("AmneziaWG: туннель остановлен"); return@withContext }
             delay(250)
         }
     }
 
-    fun isUp(): Boolean {
-        val out = runCatching {
-            val p = ProcessBuilder("sc.exe", "query", SERVICE).redirectErrorStream(true).start()
-            p.inputStream.bufferedReader().readText().also { p.waitFor(5, TimeUnit.SECONDS) }
-        }.getOrDefault("")
-        return out.contains("RUNNING")
-    }
+    // Состояние «RUNNING» в выводе sc не переводится; наличие службы — по коду возврата (1060 — службы нет)
+    fun isUp(): Boolean = scQuery().second.contains("RUNNING")
 
-    private fun ensureInstalled() {
-        if (Files.exists(exe)) return
-        log("AmneziaWG: ставлю компонент (один раз)")
-        val msi = DesktopNativeAssets.resolveAmneziaWgMsi()
-        val code = run("msiexec.exe", "/i", msi.toString(), "/qn", "/norestart", "DO_NOT_LAUNCH=1")
-        if (code != 0 || !Files.exists(exe)) error("AmneziaWG не установился (код $code)")
-    }
+    private fun serviceExists(): Boolean = scQuery().first == 0
+
+    private fun scQuery(): Pair<Int, String> = runCatching {
+        val p = ProcessBuilder("sc.exe", "query", SERVICE).redirectErrorStream(true).start()
+        val out = p.inputStream.bufferedReader().readText()
+        if (!p.waitFor(5, TimeUnit.SECONDS)) { p.destroyForcibly(); -1 to out } else p.exitValue() to out
+    }.getOrDefault(-1 to "")
 
     private fun run(vararg cmd: String): Int {
         val p = ProcessBuilder(*cmd).redirectErrorStream(true).start()

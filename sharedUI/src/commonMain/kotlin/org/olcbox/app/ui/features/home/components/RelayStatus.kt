@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 fun RelayStatus(
     isActive: Boolean,
     requiresSetup: Boolean = false,
+    errorText: String? = null,
     modifier: Modifier = Modifier
 ) {
     val containerColor by animateColorAsState(
@@ -121,6 +122,16 @@ fun RelayStatus(
                     fontWeight = FontWeight.Normal,
                     color = textColor.copy(alpha = 0.82f)
                 )
+                // Почему не подключилось (раньше ошибка молча превращалась в «Отключено»)
+                if (!isActive && !errorText.isNullOrBlank()) {
+                    Text(
+                        text = errorText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 3
+                    )
+                }
             }
         }
     }

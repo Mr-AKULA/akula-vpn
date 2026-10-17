@@ -9,7 +9,7 @@
 - автопереключение серверов (включается в настройках), язык — как в системе / русский / English.
 
 Основано на [olcbox](https://github.com/alananisimov/olcbox) (Kotlin Multiplatform + Compose). Платформы: Android
-(готово), Windows (AmneziaWG — готово, OpenVPN — в работе).
+(готово), Windows (готово: AmneziaWG и OpenVPN внутри программы).
 
 *English:* AKULA VPN is a client for self-hosted AKULA VPN servers — AmneziaWG/WireGuard, OpenVPN and an
 olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed under GPL v3.
@@ -39,16 +39,20 @@ olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed
 
 ## Сборка (Windows)
 
-Нужны JDK 21 (с jpackage), Go и MinGW-w64 (gcc) в `PATH`.
+Нужны JDK 21 (с jpackage), Go, MinGW-w64 (gcc) и WiX 3.14 в `PATH`.
 
 ```sh
-./gradlew :desktopApp:createDistributable -x :sharedUI:olcrtc-bin:buildOlcrtcAndroidAar
+./gradlew :desktopApp:packageAkulaExe :desktopApp:packageAkulaMsi -x :sharedUI:olcrtc-bin:buildOlcrtcAndroidAar
 ```
 
-Готовая программа — `desktopApp/build/compose/binaries/main/app/AKULA VPN/`. AmneziaWG на Windows работает через
-официальную AmneziaWG (MIT, подписанный драйвер): при сборке скачивается её установщик 3.1.0 с проверкой SHA-256,
-а при первом подключении AKULA VPN ставит его тихо и поднимает туннель её службой (нужны права администратора —
-программа перезапускается с запросом UAC). OpenVPN на компьютере — в работе.
+Установщики — `desktopApp/build/akula-installers/{exe,msi}/AKULA-VPN-windows.{exe,msi}`.
+
+Всё в одной программе, без отдельных VPN-клиентов. При сборке скачиваются официальные подписанные модули
+(суммы SHA-256 зашиты в `desktopApp/build.gradle.kts`): AmneziaWG для Windows (amneziawg.exe + Wintun),
+OpenVPN 2.7 (openvpn.exe + OpenSSL) и драйвер ovpn-dco. При подключении программа (с правами администратора)
+копирует их в `C:/ProgramData/AKULA VPN/vpn` — туда пишут только администраторы, — проверяет цифровые подписи и
+запускает оттуда: программу можно ставить в любую папку, подменить модули из папки пользователя нельзя.
+Установщик — свой шаблон WiX (`desktopApp/wix/main.wxs`): при удалении и обновлении гасит туннели.
 
 ## Выпуск обновления
 
@@ -58,8 +62,9 @@ olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed
 1. Поднять `olcbox.version` / `olcbox.versionCode` в `gradle.properties`.
 2. Собрать: Android — `./gradlew :androidApp:assembleRelease` (тем же ключом, иначе обновление не встанет),
    Windows — `./gradlew :desktopApp:packageMsi` (нужен WiX 3.14 в `PATH`).
-3. Релиз на GitHub с тегом `vX.Y.Z` и файлами `AKULA-VPN-X.Y.Z-android.apk` и
-   `AKULA-VPN-X.Y.Z-windows-amd64.msi` (в имени — `android` / `windows` + `amd64`: по ним приложение выбирает файл).
+3. Релиз на GitHub с тегом `vX.Y.Z` и файлами `AKULA-VPN-android.apk` и `AKULA-VPN-windows.exe` — имена без
+   версии: постоянные ссылки `https://github.com/Mr-AKULA/akula-vpn/releases/latest/download/<файл>` (сайт, консоль
+   сервера) всегда ведут на свежую сборку; по `android` / `windows` в имени приложение выбирает файл обновления.
 4. Сборки пустые: ни профилей, ни адресов серверов, ни ключей.
 
 ## Лицензия
