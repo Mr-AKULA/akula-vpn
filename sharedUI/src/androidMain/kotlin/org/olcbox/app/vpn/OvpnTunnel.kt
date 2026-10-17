@@ -45,7 +45,7 @@ object OvpnTunnel {
     fun isOvpnConfig(text: String): Boolean =
         Regex("""(?m)^\s*remote\s+\S+""").containsMatchIn(text) && (text.contains("<ca>") || text.contains("\nca "))
 
-    fun up(context: Context, configText: String, name: String) {
+    fun up(context: Context, configText: String, name: String, apps: TunnelApps = TunnelApps.All) {
         OvpnStatus.addStateListener(listener)
         active = true
         OlcboxVpnState.setStatus(VpnStatus.Connecting)
@@ -54,6 +54,13 @@ object OvpnTunnel {
             parser.parseConfig(StringReader(configText))
             val profile = parser.convertProfile()
             profile.mName = name
+            // Раздельный туннель: «разрешённые» или «запрещённые» приложения профиля ics-openvpn
+            when (apps) {
+                TunnelApps.All -> { profile.mAllowedAppsVpn = HashSet(); profile.mAllowedAppsVpnAreDisallowed = true }
+                is TunnelApps.Only -> { profile.mAllowedAppsVpn = HashSet(apps.packages); profile.mAllowedAppsVpnAreDisallowed = false }
+                is TunnelApps.Except -> { profile.mAllowedAppsVpn = HashSet(apps.packages); profile.mAllowedAppsVpnAreDisallowed = true }
+            }
+            OlcboxVpnState.addLog("OpenVPN: ${apps.describe()}")
             ProfileManager.setTemporaryProfile(context.applicationContext, profile)
             VPNLaunchHelper.startOpenVpn(profile, context.applicationContext, "AKULA VPN", true)
             OlcboxVpnState.addLog("OpenVPN: запускаю «$name»")

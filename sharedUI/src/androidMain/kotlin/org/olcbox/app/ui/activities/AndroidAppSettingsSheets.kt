@@ -443,7 +443,7 @@ private fun AppSettingsHubContent(
 
         SettingsNavigationRow(
             title = tr("Обновления", "Updates"),
-            value = "Nightly · every ${updateSettings.intervalHours}h",
+            value = tr("Проверка раз в ${updateSettings.intervalHours} ч", "Checks every ${updateSettings.intervalHours}h"),
             icon = Icons.Outlined.Refresh,
             enabled = true,
             onClick = onUpdatesClick
@@ -657,7 +657,7 @@ private fun SplitTunnelingSettingsContent(
             .padding(bottom = 32.dp)
     ) {
         SettingsDetailHeader(
-            title = tr("Какие приложения через VPN", "Split Tunneling"),
+            title = tr("Приложения и VPN", "Split Tunneling"),
             subtitle = settings.mode.statusTitle(settings),
             onBack = onBack
         )
@@ -672,7 +672,7 @@ private fun SplitTunnelingSettingsContent(
 
         Spacer(Modifier.height(18.dp))
 
-        SettingsSectionLabel("Routing Behavior")
+        SettingsSectionLabel(tr("Что идёт через VPN", "Routing Behavior"))
 
         Spacer(Modifier.height(8.dp))
 
@@ -818,9 +818,9 @@ private fun SplitTunnelingAppListContent(
 
     fun showSystemAppsValue(): String {
         return if (systemAppsCount == 0) {
-            "No system apps found"
+            tr("Системных приложений нет", "No system apps found")
         } else if (showSystemApps) {
-            "${appCount(systemAppsCount)} included"
+            tr("Показаны: ${appCount(systemAppsCount)}", "${appCount(systemAppsCount)} included")
         } else {
             "${appCount(systemAppsCount)} hidden by default"
         }
@@ -851,7 +851,7 @@ private fun SplitTunnelingAppListContent(
         SettingsDetailHeader(
             title = list.title(),
             subtitle = if (list == AndroidSplitTunnelList.Bypass && russianBypassActive) {
-                RUSSIAN_BYPASS_ACCURACY_MESSAGE
+                tr("Автоопределение может ошибаться — проверьте список.", RUSSIAN_BYPASS_ACCURACY_MESSAGE)
             } else {
                 list.selectionSubtitle(selectedPackages.size)
             },
@@ -944,11 +944,11 @@ private fun SplitTunnelingAppListContent(
 
         if (filteredApps.isEmpty()) {
             EmptyAppsState(
-                title = if (installedApps.isEmpty()) "No apps found" else "No matching apps",
+                title = if (installedApps.isEmpty()) tr("Приложения не найдены", "No apps found") else tr("Ничего не нашлось", "No matching apps"),
                 subtitle = if (installedApps.isEmpty()) {
-                    "Install launchable apps to configure routing rules."
+                    tr("Установите приложения, чтобы выбрать, какие пойдут через VPN.", "Install launchable apps to configure routing rules.")
                 } else {
-                    "Try another app name or package."
+                    tr("Попробуйте другое название или имя пакета.", "Try another app name or package.")
                 }
             )
         } else {
@@ -2299,7 +2299,7 @@ private fun SplitTunnelAppListAction(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    SettingsSectionLabel("App List")
+    SettingsSectionLabel(tr("Список приложений", "App List"))
 
     Spacer(Modifier.height(8.dp))
 
@@ -2488,7 +2488,7 @@ private fun RussianBypassPresetChips(
             enabled = enabled,
             onClick = onClick,
             label = {
-                Text(if (active) "RU bypass on" else "Bypass RU apps")
+                Text(if (active) tr("Российские — мимо VPN", "RU bypass on") else tr("Российские приложения мимо VPN", "Bypass RU apps"))
             },
             leadingIcon = {
                 Icon(
@@ -2742,8 +2742,7 @@ private fun AndroidConnectionMode.label(): String {
 private fun Int.subscriptionSummary(): String {
     return when (this) {
         0 -> tr("Подписок нет", "No subscriptions")
-        1 -> "1 subscription"
-        else -> "$this subscriptions"
+        else -> tr("Подписок: $this", if (this == 1) "1 subscription" else "$this subscriptions")
     }
 }
 
@@ -2863,17 +2862,17 @@ private fun AndroidConnectionMode.icon() = when (this) {
 
 private fun AndroidSplitTunnelSettings.settingsSummary(): String {
     return when (mode) {
-        AndroidSplitTunnelMode.AllApps -> "All apps"
+        AndroidSplitTunnelMode.AllApps -> tr("Все приложения", "All apps")
         AndroidSplitTunnelMode.ProxySelected -> if (proxyPackages.isEmpty()) {
-            "Selected apps only"
+            tr("Только выбранные", "Selected apps only")
         } else {
-            "Only ${appCount(proxyPackages.size)}"
+            tr("Только ${appCount(proxyPackages.size)}", "Only ${appCount(proxyPackages.size)}")
         }
 
         AndroidSplitTunnelMode.BypassSelected -> if (bypassPackages.isEmpty()) {
-            "Bypass selected apps"
+            tr("Все, кроме выбранных", "Bypass selected apps")
         } else {
-            "${appCount(bypassPackages.size)} bypassed"
+            tr("Мимо VPN: ${appCount(bypassPackages.size)}", "${appCount(bypassPackages.size)} bypassed")
         }
     }
 }
@@ -2887,42 +2886,42 @@ private fun AndroidSplitTunnelSettings.packagesFor(list: AndroidSplitTunnelList)
 
 private fun AndroidSplitTunnelMode.title(): String {
     return when (this) {
-        AndroidSplitTunnelMode.AllApps -> "All Apps"
-        AndroidSplitTunnelMode.ProxySelected -> "Selected Apps Only"
-        AndroidSplitTunnelMode.BypassSelected -> "Bypass Selected"
+        AndroidSplitTunnelMode.AllApps -> tr("Все приложения", "All Apps")
+        AndroidSplitTunnelMode.ProxySelected -> tr("Только выбранные", "Selected Apps Only")
+        AndroidSplitTunnelMode.BypassSelected -> tr("Все, кроме выбранных", "Bypass Selected")
     }
 }
 
 private fun AndroidSplitTunnelMode.subtitle(settings: AndroidSplitTunnelSettings): String {
     return when (this) {
-        AndroidSplitTunnelMode.AllApps -> "Every app uses Olcbox"
+        AndroidSplitTunnelMode.AllApps -> tr("Весь телефон через VPN", "Every app uses the VPN")
         AndroidSplitTunnelMode.ProxySelected -> if (settings.proxyPackages.isEmpty()) {
-            "Choose apps that use Olcbox"
+            tr("Выберите приложения для VPN", "Choose apps that use the VPN")
         } else {
-            "${appCount(settings.proxyPackages.size)} use Olcbox"
+            tr("Через VPN: ${appCount(settings.proxyPackages.size)}", "${appCount(settings.proxyPackages.size)} use the VPN")
         }
 
         AndroidSplitTunnelMode.BypassSelected -> if (settings.bypassPackages.isEmpty()) {
-            "Choose apps that bypass Olcbox"
+            tr("Выберите приложения мимо VPN", "Choose apps that bypass the VPN")
         } else {
-            "${appCount(settings.bypassPackages.size)} bypass Olcbox"
+            tr("Мимо VPN: ${appCount(settings.bypassPackages.size)}", "${appCount(settings.bypassPackages.size)} bypass the VPN")
         }
     }
 }
 
 private fun AndroidSplitTunnelMode.statusTitle(settings: AndroidSplitTunnelSettings): String {
     return when (this) {
-        AndroidSplitTunnelMode.AllApps -> "All apps use Olcbox"
+        AndroidSplitTunnelMode.AllApps -> tr("Все приложения через VPN", "All apps use the VPN")
         AndroidSplitTunnelMode.ProxySelected -> if (settings.proxyPackages.isEmpty()) {
-            "No apps selected"
+            tr("Приложения не выбраны", "No apps selected")
         } else {
-            "Only ${appCount(settings.proxyPackages.size)} use Olcbox"
+            tr("Через VPN только ${appCount(settings.proxyPackages.size)}", "Only ${appCount(settings.proxyPackages.size)} use the VPN")
         }
 
         AndroidSplitTunnelMode.BypassSelected -> if (settings.bypassPackages.isEmpty()) {
-            "No apps bypass Olcbox"
+            tr("Все приложения через VPN", "No apps bypass the VPN")
         } else {
-            "${appCount(settings.bypassPackages.size)} bypass Olcbox"
+            tr("Мимо VPN: ${appCount(settings.bypassPackages.size)}", "${appCount(settings.bypassPackages.size)} bypass the VPN")
         }
     }
 }
@@ -2935,15 +2934,15 @@ private fun AndroidSplitTunnelMode.icon() = when (this) {
 
 private fun AndroidSplitTunnelList.title(): String {
     return when (this) {
-        AndroidSplitTunnelList.Proxy -> "Apps Using Olcbox"
-        AndroidSplitTunnelList.Bypass -> "Bypassed Apps"
+        AndroidSplitTunnelList.Proxy -> tr("Через VPN", "Apps Using the VPN")
+        AndroidSplitTunnelList.Bypass -> tr("Мимо VPN", "Bypassed Apps")
     }
 }
 
 private fun AndroidSplitTunnelList.selectionSubtitle(count: Int): String {
     return when (this) {
-        AndroidSplitTunnelList.Proxy -> "${appCount(count)} use Olcbox"
-        AndroidSplitTunnelList.Bypass -> "${appCount(count)} bypassed"
+        AndroidSplitTunnelList.Proxy -> tr("Выбрано: ${appCount(count)}", "${appCount(count)} use the VPN")
+        AndroidSplitTunnelList.Bypass -> tr("Выбрано: ${appCount(count)}", "${appCount(count)} bypassed")
     }
 }
 
@@ -2953,12 +2952,12 @@ private fun Set<String>.russianBypassPresetValue(
     presetActive: Boolean
 ): String {
     return when {
-        isEmpty() -> "No matching installed apps"
-        !presetActive -> "${appCount(size)} matched by package"
-        selectedMatchedCount == 0 -> "No RU apps selected"
-        autoCount == 0 -> "${appCount(selectedMatchedCount)} already selected"
-        autoCount == selectedMatchedCount -> "${appCount(autoCount)} auto-bypassed"
-        else -> "$autoCount auto · ${selectedMatchedCount - autoCount} manual"
+        isEmpty() -> tr("Российских приложений не найдено", "No matching installed apps")
+        !presetActive -> tr("Найдено: ${appCount(size)}", "${appCount(size)} matched by package")
+        selectedMatchedCount == 0 -> tr("Российские приложения не выбраны", "No RU apps selected")
+        autoCount == 0 -> tr("Уже выбрано: ${appCount(selectedMatchedCount)}", "${appCount(selectedMatchedCount)} already selected")
+        autoCount == selectedMatchedCount -> tr("Мимо VPN автоматически: ${appCount(autoCount)}", "${appCount(autoCount)} auto-bypassed")
+        else -> tr("$autoCount авто · ${selectedMatchedCount - autoCount} вручную", "$autoCount auto · ${selectedMatchedCount - autoCount} manual")
     }
 }
 
@@ -2971,8 +2970,8 @@ private fun String.matchesRussianBypassPackage(): Boolean {
 private fun Set<String>.activeListValue(requireSelection: Boolean): String {
     return when {
         isNotEmpty() -> appCount(size)
-        requireSelection -> "Required"
-        else -> "No bypassed apps"
+        requireSelection -> tr("Нужно выбрать", "Required")
+        else -> tr("Все через VPN", "No bypassed apps")
     }
 }
 
@@ -2981,9 +2980,9 @@ private fun splitTunnelStatusSubtitle(
     isConnectionActive: Boolean
 ): String {
     return when {
-        selectedMode == AndroidConnectionMode.Proxy -> "Saved for TUN mode"
-        isConnectionActive -> "Applies when settings closes"
-        else -> "TUN mode routing rule"
+        selectedMode == AndroidConnectionMode.Proxy -> tr("Сохранено для режима TUN", "Saved for TUN mode")
+        isConnectionActive -> tr("VPN переподключится с новым списком", "VPN reconnects with the new list")
+        else -> tr("Правило для всех туннелей", "Routing rule for all tunnels")
     }
 }
 
@@ -2999,7 +2998,13 @@ private fun String.initials(): String {
 }
 
 private fun appCount(count: Int): String {
-    return if (count == 1) "1 app" else "$count apps"
+    if (!org.olcbox.app.ui.i18n.AppLang.isRussian) return if (count == 1) "1 app" else "$count apps"
+    val word = when {
+        count % 10 == 1 && count % 100 != 11 -> "приложение"
+        count % 10 in 2..4 && count % 100 !in 12..14 -> "приложения"
+        else -> "приложений"
+    }
+    return "$count $word"
 }
 
 private data class AndroidAppListEntry(

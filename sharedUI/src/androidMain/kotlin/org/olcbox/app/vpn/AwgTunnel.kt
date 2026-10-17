@@ -30,17 +30,32 @@ object AwgTunnel {
     fun isAwgConfig(text: String): Boolean = text.contains("[Interface]") && text.contains("[Peer]")
 
     /** Блокирующий вызов — только не из главного потока. */
-    fun up(context: Context, configText: String) {
+    fun up(context: Context, configText: String, apps: TunnelApps = TunnelApps.All) {
         val b = backend ?: GoBackend(context.applicationContext).also { backend = it }
         OlcboxVpnState.setStatus(VpnStatus.Connecting)
         try {
-            val config = Config.parse(BufferedReader(StringReader(configText)))
+            val config = Config.parse(BufferedReader(StringReader(withApps(configText, apps))))
+            OlcboxVpnState.addLog("AmneziaWG: ${apps.describe()}")
             b.setState(tunnel, Tunnel.State.UP, config)
             OlcboxVpnState.addLog("AmneziaWG: подключено")
         } catch (e: Exception) {
             OlcboxVpnState.addLog("AmneziaWG: не подключилось — ${e.message}")
             OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: "не подключилось"))
         }
+    }
+
+    /** Список приложений — ключами конфига WireGuard (IncludedApplications / ExcludedApplications) в [Interface]. */
+    private fun withApps(configText: String, apps: TunnelApps): String {
+        val clean = configText.lines().filterNot {
+            it.trim().startsWith("IncludedApplications", ignoreCase = true) ||
+                it.trim().startsWith("ExcludedApplications", ignoreCase = true)
+        }.joinToString("\n")
+        val line = when (apps) {
+            TunnelApps.All -> return clean
+            is TunnelApps.Only -> "IncludedApplications = " + apps.packages.joinToString(", ")
+            is TunnelApps.Except -> "ExcludedApplications = " + apps.packages.joinToString(", ")
+        }
+        return clean.replaceFirst(Regex("""(?m)^\s*\[Interface]\s*$"""), "[Interface]\n$line")
     }
 
     fun down() {

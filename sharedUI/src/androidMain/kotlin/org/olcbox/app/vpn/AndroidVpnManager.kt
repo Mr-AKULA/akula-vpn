@@ -193,6 +193,23 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                 preferences[KEY_ANDROID_SPLIT_TUNNEL_MODE] = mode.value
             }
         }
+        restartTunnelForApps()
+    }
+
+    private var appsRestartJob: kotlinx.coroutines.Job? = null
+
+    /** Список приложений поменяли при включённом AmneziaWG/OpenVPN — переподключаемся с новым списком. */
+    private fun restartTunnelForApps() {
+        if (!AwgTunnel.isUp() && !OvpnTunnel.isUp()) return
+        appsRestartJob?.cancel()
+        appsRestartJob = scope.launch {
+            kotlinx.coroutines.delay(1_500)  // галочки ставят подряд — переподключаемся один раз
+            if (!AwgTunnel.isUp() && !OvpnTunnel.isUp()) return@launch
+            OlcboxVpnState.addLog(org.olcbox.app.ui.i18n.tr("Список приложений изменился — переподключаю", "App list changed — reconnecting"))
+            stopVpn()
+            kotlinx.coroutines.delay(1_500)
+            startVpn()
+        }
     }
 
     fun toggleSplitTunnelApp(list: AndroidSplitTunnelList, packageName: String) {
@@ -276,9 +293,17 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     private suspend fun startEntry(entry: org.olcbox.app.data.model.LocationEntry) {
         val awg = entry.awgConfig
         val ovpn = entry.ovpnConfig
+        // Раздельный туннель (настройка «Приложения»): раньше его читала только служба olcRTC
+        val apps = if (awg.isNullOrBlank() && ovpn.isNullOrBlank()) TunnelApps.All else try {
+            TunnelApps.from(appContext, _splitTunnelSettings.value)
+        } catch (e: IllegalStateException) {
+            OlcboxVpnState.addLog(e.message ?: "")
+            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: ""))
+            return
+        }
         when {
-            !awg.isNullOrBlank() -> AwgTunnel.up(appContext, awg)
-            !ovpn.isNullOrBlank() -> withContext(Dispatchers.Main) { OvpnTunnel.up(appContext, ovpn, entry.location.displayName()) }
+            !awg.isNullOrBlank() -> AwgTunnel.up(appContext, awg, apps)
+            !ovpn.isNullOrBlank() -> withContext(Dispatchers.Main) { OvpnTunnel.up(appContext, ovpn, entry.location.displayName(), apps) }
             else -> withContext(Dispatchers.Main) { startOlcrtcVpn() }
         }
     }
@@ -473,6 +498,7 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                 preferences[KEY_ANDROID_SPLIT_TUNNEL_BYPASS_APPS] = settings.bypassPackages
             }
         }
+        restartTunnelForApps()
     }
 
     private data class AndroidAppPreferences(
