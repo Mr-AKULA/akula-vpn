@@ -265,7 +265,7 @@ class OlcboxVpnService : VpnService() {
 
     /** Своя почта не указана — готовое письмо «olc start <код>» в почтовой программе (как страница включения) */
     private fun openWakeMail(config: LocationConfig): Boolean = runCatching {
-        addLog("AKULA: своя почта не указана — открываю письмо «Включить»")
+        addLog("AKULA: открываю письмо «Включить» в почтовой программе")
         val uri = android.net.Uri.parse(AkulaMailAccountStore.mailto(config.wakeEmail, "start", config.wakeCode))
         startActivity(Intent(Intent.ACTION_SENDTO, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }.onFailure { addLog("AKULA: почтовая программа не открылась: ${it.message}") }.isSuccess
@@ -637,14 +637,12 @@ class OlcboxVpnService : VpnService() {
                 config.hasWake -> {
                     wakeLocation = config
                     val account = AkulaMailAccountStore.load()
-                    if (account.ok()) {
-                        withContext(Dispatchers.IO) {
-                            addLog("AKULA: будим сервер письмом со своей почты")
-                            AkulaMail.command(account, config.wakeEmail, config.wakeCode, "start", { protect(it) }, { addLog(it) })
-                        }
-                    } else {
-                        openWakeMail(config)
+                    val sent = account.ok() && withContext(Dispatchers.IO) {
+                        addLog("AKULA: будим сервер письмом со своей почты")
+                        AkulaMail.command(account, config.wakeEmail, config.wakeCode, "start", { protect(it) }, { addLog(it) })
                     }
+                    // Почты нет или сеть не дала отправить — готовое письмо в почтовой программе
+                    sent || openWakeMail(config)
                 }
                 else -> false
             }

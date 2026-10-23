@@ -104,10 +104,13 @@ class DesktopVpnManager private constructor(
         val account = AkulaMailAccountStore.load()
         if (account.ok()) {
             addLog("AKULA: «$action» — письмо на почту сервера")
-            return AkulaMail.command(account, location.wakeEmail, location.wakeCode, action, log = ::addLog, attempts = attempts)
+            if (AkulaMail.command(account, location.wakeEmail, location.wakeCode, action, log = ::addLog, attempts = attempts)) {
+                return true
+            }
+            // Сеть закрывает отправку почты (бывает у хостингов и сетей) — остаётся почтовая программа
         }
         if (!interactive) return false
-        addLog("AKULA: своя почта не указана — открываю письмо «$action» в почтовой программе")
+        addLog("AKULA: открываю письмо «$action» в почтовой программе")
         return runCatching {
             val uri = java.net.URI(AkulaMailAccountStore.mailto(location.wakeEmail, action, location.wakeCode))
             val desktop = java.awt.Desktop.getDesktop()
