@@ -28,6 +28,31 @@ class JvmUpdateInstaller(
         "Opening ${asset.name}"
     }
 
+    /**
+     * AKULA: версия, которую Windows считает установленной (реестр «Программы и компоненты»). Установщик мог уже
+     * поставить новую версию, а работает ещё старый процесс — тогда не «Скачать», а «перезапустите».
+     */
+    suspend fun installedVersion(): String? = withContext(Dispatchers.IO) {
+        if (!System.getProperty("os.name").orEmpty().startsWith("Windows")) return@withContext null
+        val roots = listOf(
+            """HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall""",
+            """HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"""
+        )
+        val name = Regex("""^\s+DisplayName\s+REG_SZ\s+AKULA VPN\s*$""", RegexOption.MULTILINE)
+        val version = Regex("""^\s+DisplayVersion\s+REG_SZ\s+(\S+)""", RegexOption.MULTILINE)
+        roots.flatMap { root ->
+            runCatching {
+                val p = ProcessBuilder("reg.exe", "query", root, "/s").redirectErrorStream(true).start()
+                val out = p.inputStream.bufferedReader().readText()
+                p.waitFor()
+                // Разделы начинаются со строки HKEY_…; в разделе AKULA VPN берём DisplayVersion
+                out.split(Regex("""\r?\n(?=HKEY_)"""))
+                    .filter { name.containsMatchIn(it) }
+                    .mapNotNull { version.find(it)?.groupValues?.get(1) }
+            }.getOrDefault(emptyList())
+        }.maxWithOrNull { a, b -> AppUpdateService.compareVersions(a, b) }
+    }
+
     private suspend fun download(
         asset: AppUpdateAsset,
         onProgress: (Float) -> Unit

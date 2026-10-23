@@ -77,6 +77,34 @@ class AppUpdateServiceTest {
     }
 
     @Test
+    fun stableUpdateIsTheSameAfterAssetsAreReuploaded() {
+        // Дозалили файл в тот же релиз — это не новое обновление (Павел 23.10.2026)
+        val asset = AppUpdateAsset("AKULA-VPN-windows.exe", "https://example/exe", 100, "2026-10-23T16:42:00Z")
+        val info = AppUpdateInfo(ReleaseChannel.Stable, "1.2.2", "https://example/release", null, asset, true)
+        val settings = AppUpdateSettings(lastCheckAtEpochMs = 10_000L, lastSeenUpdateVersion = info.identity(),
+            lastDownloadedUpdateVersion = info.identity())
+        val reuploaded = info.copy(asset = asset.copy(name = "AKULA-VPN-windows-amd64.exe", sizeBytes = 101,
+            updatedAt = "2026-10-23T17:00:00Z"))
+
+        assertFalse(reuploaded.shouldShowOffer(settings, 10_001L))
+        assertTrue(reuploaded.isDownloaded(settings))
+    }
+
+    @Test
+    fun selectsAkulaWindowsInstallerWithoutArchInName() {
+        val selected = AppUpdateService.selectAsset(
+            assets = listOf(
+                GithubReleaseAsset("AKULA-VPN-android.apk", "https://example/apk"),
+                GithubReleaseAsset("AKULA-VPN-windows.exe", "https://example/exe"),
+                GithubReleaseAsset("SHA256SUMS.txt", "https://example/sums")
+            ),
+            platform = UpdatePlatform("windows", "amd64")
+        )
+
+        assertEquals("AKULA-VPN-windows.exe", selected?.name)
+    }
+
+    @Test
     fun selectsNightlyAndroidApk() {
         val selected = AppUpdateService.selectAsset(
             assets = listOf(

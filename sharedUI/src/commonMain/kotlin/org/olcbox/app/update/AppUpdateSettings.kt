@@ -59,7 +59,11 @@ fun AppUpdateSettings.isUpdateCheckDue(nowEpochMs: Long): Boolean {
     return nowEpochMs - lastCheck >= intervalMs
 }
 
+// AKULA (Павел 23.10.2026): обновление — это номер версии. Раньше сюда входили имя, размер и время файла:
+// дозалили файл в тот же релиз — и приложение снова предлагало ту же версию
+// (у ночных сборок версия всегда «nightly» — там новая сборка отличается только файлом, отпечаток прежний)
 fun AppUpdateInfo.identity(): String {
+    if (channel == ReleaseChannel.Stable) return listOf(channel.name, version).joinToString("|")
     return listOf(
         channel.name,
         version,

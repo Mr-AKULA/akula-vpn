@@ -212,6 +212,15 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
                         if (info.isDownloaded(checkedSettings)) {
                             updateOffer = null
                             updateMessage = tr("Последняя версия уже скачана", "Latest version is already downloaded")
+                        } else if (info.isUpdateAvailable && dependencies.updateInstaller.installedVersion()
+                                ?.let { AppUpdateService.compareVersions(it, info.version) >= 0 } == true
+                        ) {
+                            // Новая версия уже установлена, а работает старый процесс — скачивать её снова незачем
+                            updateOffer = null
+                            updateMessage = tr(
+                                "Версия ${info.version} уже установлена — перезапустите AKULA VPN",
+                                "Version ${info.version} is already installed — restart AKULA VPN"
+                            )
                         } else if (info.isUpdateAvailable) {
                             updateOffer = info
                             updateMessage = tr("Доступна версия ${info.version}", "Update found: ${info.version}")
