@@ -19,6 +19,10 @@ class JvmUpdateInstaller(
         onProgress: (Float) -> Unit = {}
     ): Result<String> = runCatching {
         val file = download(asset, onProgress)
+        if (isWindows) {
+            launchWindowsInstaller(file)
+            return@runCatching "Opening ${asset.name}"
+        }
         val desktop = if (Desktop.isDesktopSupported()) Desktop.getDesktop() else null
         when {
             desktop?.isSupported(Desktop.Action.OPEN) == true -> desktop.open(file.toFile())
@@ -51,6 +55,26 @@ class JvmUpdateInstaller(
                     .mapNotNull { version.find(it)?.groupValues?.get(1) }
             }.getOrDefault(emptyList())
         }.maxWithOrNull { a, b -> AppUpdateService.compareVersions(a, b) }
+    }
+
+    /** На Windows после запуска установщика программу нужно закрыть, иначе он не заменит её файлы */
+    val closesAppAfterLaunch: Boolean get() = isWindows
+
+    private val isWindows: Boolean get() = System.getProperty("os.name").orEmpty().startsWith("Windows")
+
+    /**
+     * AKULA (23.10.2026): Java не запускает .exe через Desktop.open («Unsupported URI content») — из-за этого
+     * версии 1.2.1–1.2.3 скачивали обновление и снова предлагали «Скачать». Запускаем через оболочку Windows:
+     * start → ShellExecute, как двойной щелчок (Windows сама спросит права администратора).
+     */
+    private fun launchWindowsInstaller(file: Path) {
+        val path = file.toAbsolutePath().toString()
+        val command = if (path.endsWith(".msi", ignoreCase = true)) {
+            listOf("msiexec.exe", "/i", path)
+        } else {
+            listOf("cmd.exe", "/c", "start", "\"AKULA VPN\"", path)
+        }
+        ProcessBuilder(command).redirectErrorStream(true).start()
     }
 
     private suspend fun download(

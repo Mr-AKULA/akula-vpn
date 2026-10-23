@@ -262,6 +262,13 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
                 updateOffer = null
             }
             updateProgress = null
+            if (result.isSuccess && dependencies.updateInstaller.closesAppAfterLaunch) {
+                // Установщик запущен — закрываемся, чтобы он заменил файлы программы (VPN выключится сам)
+                updateMessage = tr("Устанавливаю обновление — AKULA VPN закроется", "Installing the update — AKULA VPN will close")
+                kotlinx.coroutines.delay(2_000)
+                dependencies.close()
+                exitApplication()
+            }
         }
     }
 
