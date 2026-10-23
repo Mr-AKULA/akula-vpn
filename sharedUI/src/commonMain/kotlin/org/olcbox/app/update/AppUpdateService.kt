@@ -140,8 +140,12 @@ class AppUpdateService(
         fun selectAsset(assets: List<GithubReleaseAsset>, platform: UpdatePlatform): AppUpdateAsset? {
             val asset = when (platform.os) {
                 "android" -> selectAndroidAsset(assets, platform)
-                // AKULA: файл Windows называется AKULA-VPN-windows.exe — без «amd64» 1.2.1 обновление не находила
-                "windows" -> selectAssetByTokens(assets, platform.assetToken, platform.preferredExtensions)
+                // AKULA: установщик — AKULA-VPN-windows.exe. Файл *-windows-amd64.zip в релизе — для старых
+                // версий (1.2.1–1.2.4 не умеют запускать .exe и открывают архив в Проводнике), нам он не нужен
+                "windows" -> assets.filter { asset ->
+                    val name = asset.name.lowercase()
+                    "windows" in name && (name.endsWith(".exe") || name.endsWith(".msi"))
+                }.let { selectPreferredAsset(it, listOf(".exe", ".msi")) }
                     ?: selectAssetByTokens(assets, listOf("windows"), platform.preferredExtensions)
                 else -> selectAssetByTokens(assets, platform.assetToken, platform.preferredExtensions)
             }

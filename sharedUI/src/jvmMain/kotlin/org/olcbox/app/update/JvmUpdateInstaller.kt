@@ -67,7 +67,8 @@ class JvmUpdateInstaller(
      * версии 1.2.1–1.2.3 скачивали обновление и снова предлагали «Скачать». Запускаем через оболочку Windows:
      * start → ShellExecute, как двойной щелчок (Windows сама спросит права администратора).
      */
-    private fun launchWindowsInstaller(file: Path) {
+    private fun launchWindowsInstaller(downloaded: Path) {
+        val file = if (downloaded.toString().endsWith(".zip", ignoreCase = true)) unzipInstaller(downloaded) else downloaded
         val path = file.toAbsolutePath().toString()
         val command = if (path.endsWith(".msi", ignoreCase = true)) {
             listOf("msiexec.exe", "/i", path)
@@ -75,6 +76,22 @@ class JvmUpdateInstaller(
             listOf("cmd.exe", "/c", "start", "\"AKULA VPN\"", path)
         }
         ProcessBuilder(command).redirectErrorStream(true).start()
+    }
+
+    /** Архив для старых версий: внутри AKULA-VPN-windows.exe — достаём его рядом и запускаем */
+    private fun unzipInstaller(zip: Path): Path {
+        java.util.zip.ZipInputStream(Files.newInputStream(zip)).use { input ->
+            while (true) {
+                val entry = input.nextEntry ?: break
+                val name = entry.name.substringAfterLast('/')
+                if (!entry.isDirectory && name.endsWith(".exe", ignoreCase = true)) {
+                    val target = zip.resolveSibling(name)
+                    Files.copy(input, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                    return target
+                }
+            }
+        }
+        error("В архиве обновления нет установщика")
     }
 
     private suspend fun download(

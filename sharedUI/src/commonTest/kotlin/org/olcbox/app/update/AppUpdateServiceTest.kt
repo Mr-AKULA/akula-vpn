@@ -95,6 +95,7 @@ class AppUpdateServiceTest {
         val selected = AppUpdateService.selectAsset(
             assets = listOf(
                 GithubReleaseAsset("AKULA-VPN-android.apk", "https://example/apk"),
+                GithubReleaseAsset("AKULA-VPN-windows-amd64.zip", "https://example/zip"),
                 GithubReleaseAsset("AKULA-VPN-windows.exe", "https://example/exe"),
                 GithubReleaseAsset("SHA256SUMS.txt", "https://example/sums")
             ),
