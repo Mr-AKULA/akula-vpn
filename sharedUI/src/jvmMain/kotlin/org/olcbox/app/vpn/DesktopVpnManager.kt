@@ -17,6 +17,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.olcbox.app.akula.AkulaMail
+import org.olcbox.app.akula.AkulaMailAccountStore
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.repository.LocationsRepository
 import org.olcbox.app.data.repository.SubscriptionFetchProxy
@@ -92,6 +95,32 @@ class DesktopVpnManager private constructor(
     }
     @Volatile private var ovpnActive = false
 
+    // AKULA: звонок белых списков спит, пока не нужен. Почта сервера и код — из подписки, отправитель — своя почта
+    // пользователя из настроек; её нет — открываем готовое письмо в почтовой программе (как страница включения).
+    // «Стоп» привратник выполнит, когда в звонке никого не останется (Павел 23.10.2026)
+    @Volatile private var wakeLocation: LocationConfig? = null
+
+    private fun wakeMail(location: LocationConfig, action: String, interactive: Boolean, attempts: Int = 4): Boolean {
+        val account = AkulaMailAccountStore.load()
+        if (account.ok()) {
+            addLog("AKULA: «$action» — письмо на почту сервера")
+            return AkulaMail.command(account, location.wakeEmail, location.wakeCode, action, log = ::addLog, attempts = attempts)
+        }
+        if (!interactive) return false
+        addLog("AKULA: своя почта не указана — открываю письмо «$action» в почтовой программе")
+        return runCatching {
+            val uri = java.net.URI(AkulaMailAccountStore.mailto(location.wakeEmail, action, location.wakeCode))
+            val desktop = java.awt.Desktop.getDesktop()
+            if (desktop.isSupported(java.awt.Desktop.Action.MAIL)) desktop.mail(uri) else desktop.browse(uri)
+        }.onFailure { addLog("AKULA: почтовая программа не открылась: ${it.message}") }.isSuccess
+    }
+
+    private fun sendStopInBackground() {
+        val prev = wakeLocation ?: return
+        wakeLocation = null
+        scope.launch(Dispatchers.IO) { wakeMail(prev, "stop", interactive = false) }
+    }
+
     override fun needsPermission(): Boolean = false
 
     override fun startVpn() {
@@ -125,6 +154,7 @@ class DesktopVpnManager private constructor(
             mutex.withLock {
                 stopDesktopMode(finalStatus = true)
             }
+            sendStopInBackground()
         }
     }
 
@@ -193,6 +223,8 @@ class DesktopVpnManager private constructor(
                 stopDesktopMode(finalStatus = true)
             }
 
+            // Приложение закрывают — одна попытка, чтобы не держать выход
+            wakeLocation?.let { prev -> wakeLocation = null; runCatching { wakeMail(prev, "stop", interactive = false, attempts = 1) } }
             scope.cancel()
         }
     }
@@ -208,6 +240,9 @@ class DesktopVpnManager private constructor(
             addLog("Add a valid location before starting desktop proxy")
             return
         }
+
+        // Переключились с белых списков на другое подключение — тот звонок больше не нужен
+        if (wakeLocation != null && wakeLocation?.wakeCode != location.wakeCode) sendStopInBackground()
 
         // AmneziaWG/WireGuard (профиль из консоли AKULA): на Windows — служба официальной AmneziaWG
         if (location.isAwg) {
@@ -249,8 +284,6 @@ class DesktopVpnManager private constructor(
         }
 
         try {
-            val ready = CompletableDeferred<Unit>()
-            val startupFailure = CompletableDeferred<String>()
             val socksSettings = _socksProxySettings.value.normalized()
             val desktopMode = DesktopMode.from(socksSettings.routingMode)
             activeDesktopMode = desktopMode
@@ -259,23 +292,69 @@ class DesktopVpnManager private constructor(
                 windowsTunController.ensureAdministratorOrRequestRestart()
             }
 
-            process = startOlcRtcProcessWithFallback(
-                location = location,
-                socksSettings = socksSettings,
-                ready = ready,
-                startupFailure = startupFailure,
-                logOutput = true,
-                privileged = desktopMode == DesktopMode.LinuxTun
-            )
+            // Звонок белых списков спит, пока его не разбудят письмом, и просыпается 20–40 секунд. Клиент olcRTC,
+            // не дождавшись сервера в комнате, выходит — не сдаёмся сразу, а пробуем ещё минуту (Павел 23.10.2026).
+            val woke = location.hasWake && withContext(Dispatchers.IO) {
+                wakeLocation = location
+                wakeMail(location, "start", interactive = !isRestart)
+            }
+            var wakeDeadline = 0L
+            var attempt = 0
+            while (true) {
+                attempt++
+                val ready = CompletableDeferred<Unit>()
+                val startupFailure = CompletableDeferred<String>()
+                process = startOlcRtcProcessWithFallback(
+                    location = location,
+                    socksSettings = socksSettings,
+                    ready = ready,
+                    startupFailure = startupFailure,
+                    logOutput = true,
+                    privileged = desktopMode == DesktopMode.LinuxTun
+                )
+                val attemptProcess = process ?: error("olcRTC process is missing")
+                try {
+                    waitForOlcRtcReady(
+                        process = attemptProcess,
+                        ready = ready,
+                        startupFailure = startupFailure,
+                        socksPort = socksSettings.port,
+                        requestGeneration = requestGeneration
+                    )
+                    break
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    runCatching { attemptProcess.destroyForcibly() }
+                    process = null
+                    val now = System.currentTimeMillis()
+                    if (wakeDeadline == 0L) wakeDeadline = now + if (woke) OLC_WAKE_SENT_WAIT_MS else OLC_WAKE_WAIT_MS
+                    if (now + OLC_RETRY_DELAY_MS >= wakeDeadline) {
+                        addLog("olcRTC: ${e.message}; attempts: $attempt")
+                        error(when {
+                            woke -> tr(
+                                "Звонок не отвечает, хотя письмо отправлено. Подождите минуту и подключитесь снова",
+                                "The call does not answer although the wake e-mail was sent. Wait a minute and connect again"
+                            )
+                            location.hasWake -> tr(
+                                "Звонок не отвечает. Отправьте письмо «Включить» (или укажите свою почту Яндекса в настройках) и через минуту подключитесь снова",
+                                "The call does not answer. Send the wake e-mail (or set your Yandex mail in settings) and connect again in a minute"
+                            )
+                            else -> tr(
+                                "Звонок не отвечает. Включите его письмом со страницы включения и через минуту подключитесь снова",
+                                "The call does not answer. Wake it with the e-mail from the wake page and connect again in a minute"
+                            )
+                        })
+                    }
+                    addLog("olcRTC: ${e.message}. The call may still be waking up — retry ${attempt + 1}")
+                    delay(OLC_RETRY_DELAY_MS)
+                    if (requestGeneration != generation) {
+                        throw CancellationException("Desktop start superseded")
+                    }
+                }
+            }
 
             val olcRtcProcess = process ?: error("olcRTC process is missing")
-            waitForOlcRtcReady(
-                process = olcRtcProcess,
-                ready = ready,
-                startupFailure = startupFailure,
-                socksPort = socksSettings.port,
-                requestGeneration = requestGeneration
-            )
 
             if (requestGeneration != generation) {
                 throw CancellationException("Desktop start superseded")
@@ -547,6 +626,9 @@ class DesktopVpnManager private constructor(
         ).redirectErrorStream(true)
 
         processBuilder.environment()["NO_PROXY"] = "127.0.0.1,localhost"
+        // Закрытый stdin = «выйди из звонка вежливо»: на Windows destroy() — это TerminateProcess, olcRTC не успевал
+        // попрощаться, и сервер видел уход только через минуту (по таймауту)
+        processBuilder.environment()["OLCRTC_STDIN_LIFELINE"] = "1"
         processBuilder.environment()["no_proxy"] = "127.0.0.1,localhost"
 
         val startedProcess = try {
@@ -785,6 +867,9 @@ class DesktopVpnManager private constructor(
         if (target == null) return
         if (!target.isAlive) return
 
+        runCatching { target.outputStream.close() }
+        if (target.waitFor(PROCESS_GRACEFUL_STOP_MS, TimeUnit.MILLISECONDS)) return
+
         target.toHandle().descendants().forEach {
             it.destroy()
         }
@@ -815,9 +900,13 @@ class DesktopVpnManager private constructor(
     private companion object {
         const val MAX_LOG_ENTRIES = 5_000
         const val OLC_READY_TIMEOUT_MS = 25_000L
+        const val OLC_WAKE_SENT_WAIT_MS = 120_000L  // письмо ушло: привратник проверяет почту раз в 20 с, звонок встаёт за 20–40 с
+        const val OLC_WAKE_WAIT_MS = 60_000L  // столько ещё ждём просыпающийся звонок после первой неудачи
+        const val OLC_RETRY_DELAY_MS = 3_000L
         const val OLC_STARTUP_STABILITY_MS = 1_500L
         const val READY_POLL_INTERVAL_MS = 200L
         const val TCP_CONNECT_TIMEOUT_MS = 250L
+        const val PROCESS_GRACEFUL_STOP_MS = 3_000L
         const val PROCESS_STOP_TIMEOUT_MS = 3_000L
         const val PROCESS_KILL_TIMEOUT_MS = 1_000L
         const val DEFAULT_LOCATION_PING_PARALLELISM = 4

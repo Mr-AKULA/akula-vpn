@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
@@ -187,9 +188,25 @@ fun ApplicationSettingsSheet(
                     subscriptionsCount = subscriptions.size,
                     onConnectionClick = { route = SharedSettingsRoute.Connection },
                     onSubscriptionsClick = { route = SharedSettingsRoute.Subscriptions },
+                    onWakeMailClick = { route = SharedSettingsRoute.WakeMail },
                     onUpdatesClick = { route = SharedSettingsRoute.Updates },
                     onLogsClick = { route = SharedSettingsRoute.Logs }
                 )
+
+                SharedSettingsRoute.WakeMail -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 32.dp)
+                ) {
+                    SharedDetailHeader(
+                        title = tr("Почта для белых списков", "Whitelist wake mail"),
+                        subtitle = tr("Включение звонка письмом", "Wake the call by e-mail"),
+                        onBack = { route = SharedSettingsRoute.Hub }
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    AkulaMailSettingsBody()
+                }
 
                 SharedSettingsRoute.Connection -> SharedConnectionSettingsContent(
                     summary = connectionSummary,
@@ -293,6 +310,7 @@ private fun SharedSettingsHubContent(
     subscriptionsCount: Int,
     onConnectionClick: () -> Unit,
     onSubscriptionsClick: () -> Unit,
+    onWakeMailClick: () -> Unit,
     onUpdatesClick: () -> Unit,
     onLogsClick: () -> Unit
 ) {
@@ -323,6 +341,13 @@ private fun SharedSettingsHubContent(
             value = subscriptionsCount.subscriptionSummary(),
             icon = Icons.Outlined.Share,
             onClick = onSubscriptionsClick
+        )
+
+        SharedNavigationRow(
+            title = tr("Почта для белых списков", "Whitelist wake mail"),
+            value = akulaMailSummary(),
+            icon = Icons.Outlined.Email,
+            onClick = onWakeMailClick
         )
 
         SharedNavigationRow(
@@ -1681,7 +1706,8 @@ private enum class SharedSettingsRoute {
     SubscriptionDetails,
     Updates,
     Logs,
-    SocksProxy
+    SocksProxy,
+    WakeMail
 }
 
 private fun Int.subscriptionSummary(): String {

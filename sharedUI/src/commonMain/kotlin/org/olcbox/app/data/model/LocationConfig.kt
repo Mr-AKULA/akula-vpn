@@ -35,10 +35,17 @@ data class LocationConfig(
     val awgConfig: String = "",
     // OpenVPN: текст профиля (.ovpn) из консоли сервера AKULA (движок ics-openvpn)
     @SerialName("ovpn_config")
-    val ovpnConfig: String = ""
+    val ovpnConfig: String = "",
+    // Белые списки AKULA: звонок спит, пока не нужен. Почта сервера и код приходят в подписке (без паролей):
+    // «Подключить» шлёт письмо «olc start <код>» на wakeEmail, «Отключить» — «olc stop <код>»
+    @SerialName("wake_email")
+    val wakeEmail: String = "",
+    @SerialName("wake_code")
+    val wakeCode: String = ""
 ) {
     val isAwg: Boolean get() = awgConfig.isNotBlank()
     val isOvpn: Boolean get() = ovpnConfig.isNotBlank()
+    val hasWake: Boolean get() = wakeEmail.isNotBlank() && wakeCode.isNotBlank()
 
     fun normalized(): LocationConfig {
         val provider = normalizeProvider(bypassProvider)
@@ -50,6 +57,8 @@ data class LocationConfig(
             bypassProvider = provider,
             transport = normalizedTransport,
             dnsServer = dnsServer.trim().take(MAX_DNS_SERVER_LENGTH),
+            wakeEmail = wakeEmail.trim(),
+            wakeCode = wakeCode.trim(),
             vp8Fps = sanitizeVp8Fps(vp8Fps),
             vp8Batch = sanitizeVp8Batch(vp8Batch)
         )
@@ -592,7 +601,11 @@ data class LocationEntry(
     @SerialName("awg_config")
     val awgConfig: String? = null,
     @SerialName("ovpn_config")
-    val ovpnConfig: String? = null
+    val ovpnConfig: String? = null,
+    @SerialName("wake_email")
+    val wakeEmail: String? = null,
+    @SerialName("wake_code")
+    val wakeCode: String? = null
 ) {
     val location: LocationConfig
         get() {
@@ -623,7 +636,9 @@ data class LocationEntry(
                     ?: LocationConfig.DEFAULT_VP8_BATCH,
                 dnsServer = firstNotBlank(dnsServer, legacyDnsServerCamel),
                 awgConfig = awgConfig.orEmpty(),
-                ovpnConfig = ovpnConfig.orEmpty()
+                ovpnConfig = ovpnConfig.orEmpty(),
+                wakeEmail = wakeEmail.orEmpty(),
+                wakeCode = wakeCode.orEmpty()
             ).normalized()
         }
 
@@ -647,7 +662,9 @@ data class LocationEntry(
                 ?.normalized()
                 ?.takeUnless { it.isEmpty() },
             awgConfig = config.awgConfig.takeIf { it.isNotBlank() },
-            ovpnConfig = config.ovpnConfig.takeIf { it.isNotBlank() }
+            ovpnConfig = config.ovpnConfig.takeIf { it.isNotBlank() },
+            wakeEmail = config.wakeEmail.takeIf { it.isNotBlank() },
+            wakeCode = config.wakeCode.takeIf { it.isNotBlank() }
         )
     }
 
@@ -672,7 +689,9 @@ data class LocationEntry(
                 dnsServer = config.dnsServer.takeIf { it.isNotBlank() },
                 metadata = metadata,
                 awgConfig = config.awgConfig.takeIf { it.isNotBlank() },
-                ovpnConfig = config.ovpnConfig.takeIf { it.isNotBlank() }
+                ovpnConfig = config.ovpnConfig.takeIf { it.isNotBlank() },
+                wakeEmail = config.wakeEmail.takeIf { it.isNotBlank() },
+                wakeCode = config.wakeCode.takeIf { it.isNotBlank() }
             ).normalized()
         }
 

@@ -137,6 +137,36 @@ class LocationsRepositoryImplTest {
     }
 
     @Test
+    fun importsAkulaWhitelistWakeFieldsFromSubscription() = runTest {
+        // Подписка панели AKULA: белые списки + почта привратника и код (без паролей)
+        val source = FakeLocationsDataSource()
+        val input = """
+            {
+              "version": 5,
+              "locations": [
+                {
+                  "storage_id": "akula_panel_cn_wl",
+                  "name": "AKULA · Белые списки",
+                  "id": "https://meet.egovm.ru/akula-x",
+                  "key": "key-wl",
+                  "bypass_provider": "jitsi",
+                  "transport": "datachannel",
+                  "wake_email": "gate@yandex.ru",
+                  "wake_code": "ABCdef23456789"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        LocationsRepositoryImpl(source).importText(input)
+
+        val location = assertNotNull(source.stored).locations.first().location
+        assertEquals("gate@yandex.ru", location.wakeEmail)
+        assertEquals("ABCdef23456789", location.wakeCode)
+        assertTrue(location.hasWake)
+    }
+
+    @Test
     fun importsSingleLegacyLocationWithTurnProvider() = runTest {
         val source = FakeLocationsDataSource()
         val input = """

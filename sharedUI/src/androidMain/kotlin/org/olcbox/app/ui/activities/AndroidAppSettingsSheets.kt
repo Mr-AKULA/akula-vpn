@@ -43,6 +43,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -235,9 +236,25 @@ internal fun AppSettingsSheet(
                     onAutoFailoverChanged = onAutoFailoverChanged,
                     onConnectionSettingsClick = { route = AppSettingsRoute.ConnectionSettings },
                     onSubscriptionsSharingClick = { route = AppSettingsRoute.SubscriptionsSharing },
+                    onWakeMailClick = { route = AppSettingsRoute.WakeMail },
                     onUpdatesClick = { route = AppSettingsRoute.Updates },
                     onApplicationLogsClick = { route = AppSettingsRoute.ApplicationLogs }
                 )
+
+                AppSettingsRoute.WakeMail -> Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 32.dp)
+                ) {
+                    SettingsDetailHeader(
+                        title = tr("Почта для белых списков", "Whitelist wake mail"),
+                        subtitle = tr("Включение звонка письмом", "Wake the call by e-mail"),
+                        onBack = { route = AppSettingsRoute.Hub }
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    org.olcbox.app.ui.components.AkulaMailSettingsBody()
+                }
 
                 AppSettingsRoute.ConnectionSettings -> ConnectionSettingsContent(
                     selectedMode = selectedMode,
@@ -368,6 +385,7 @@ private fun AppSettingsHubContent(
     onAutoFailoverChanged: (Boolean) -> Unit,
     onConnectionSettingsClick: () -> Unit,
     onSubscriptionsSharingClick: () -> Unit,
+    onWakeMailClick: () -> Unit,
     onUpdatesClick: () -> Unit,
     onApplicationLogsClick: () -> Unit
 ) {
@@ -439,6 +457,14 @@ private fun AppSettingsHubContent(
             icon = Icons.Outlined.Share,
             enabled = true,
             onClick = onSubscriptionsSharingClick
+        )
+
+        SettingsNavigationRow(
+            title = tr("Почта для белых списков", "Whitelist wake mail"),
+            value = org.olcbox.app.ui.components.akulaMailSummary(),
+            icon = Icons.Outlined.Email,
+            enabled = true,
+            onClick = onWakeMailClick
         )
 
         SettingsNavigationRow(
@@ -2722,6 +2748,7 @@ private sealed class AppSettingsRoute(val depth: Int) {
     data class SubscriptionDetails(val subscriptionUrl: String) : AppSettingsRoute(2)
     object Updates : AppSettingsRoute(1)
     object ApplicationLogs : AppSettingsRoute(1)
+    object WakeMail : AppSettingsRoute(1)
     data class AppList(val list: AndroidSplitTunnelList) : AppSettingsRoute(2)
 }
 

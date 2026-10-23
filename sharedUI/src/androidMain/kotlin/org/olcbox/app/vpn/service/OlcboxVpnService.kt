@@ -38,6 +38,8 @@ import mobile.Mobile
 import mobile.SocketProtector
 import org.olcbox.app.data.TUN2SOCKS_CONFIG_FILE_NAME
 import org.olcbox.app.vpn.awaitRuntimeReady
+import org.olcbox.app.akula.AkulaMail
+import org.olcbox.app.akula.AkulaMailAccountStore
 import org.olcbox.app.akula.AkulaWake
 import org.olcbox.app.data.datasource.LocationsDataSourceImpl
 import org.olcbox.app.data.datasource.LocationsRepositoryImpl
@@ -79,6 +81,8 @@ class OlcboxVpnService : VpnService() {
     private val scope = CoroutineScope(Dispatchers.Default + job)
     @Volatile private var olcRtcRuntime = Mobile.new_()
     private var lastMobileRoom = ""
+    // AKULA: белые списки из подписки — почта сервера и код (без паролей); отправитель — своя почта из настроек
+    @Volatile private var wakeLocation: LocationConfig? = null
     private var lastStoppedJitsiRoom = ""
     private val tunnelMutex = Mutex()
     private val repository: LocationsRepository by lazy {
@@ -259,21 +263,36 @@ class OlcboxVpnService : VpnService() {
         installMobileCallbacks()
     }
 
+    /** Своя почта не указана — готовое письмо «olc start <код>» в почтовой программе (как страница включения) */
+    private fun openWakeMail(config: LocationConfig): Boolean = runCatching {
+        addLog("AKULA: своя почта не указана — открываю письмо «Включить»")
+        val uri = android.net.Uri.parse(AkulaMailAccountStore.mailto(config.wakeEmail, "start", config.wakeCode))
+        startActivity(Intent(Intent.ACTION_SENDTO, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }.onFailure { addLog("AKULA: почтовая программа не открылась: ${it.message}") }.isSuccess
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             OlcboxVpnActions.ACTION_STOP_VPN -> {
                 addLog("Stop VPN requested")
                 // AKULA: «отключился» — сторожу, в фоне: сервер уснёт, когда отключились все
                 val akula = lastMobileRoom.takeIf { it.isNotBlank() }?.let { AkulaWake.settings(applicationContext, it) }
+                val wake = wakeLocation.also { wakeLocation = null }
+                val account = AkulaMailAccountStore.load()
                 cleanup()
                 if (akula != null) {
                     Thread { AkulaWake.command(akula, "stop", { runCatching { protect(it) }.getOrDefault(false) }, { addLog(it) }) }
                         .start()
+                } else if (wake != null && account.ok()) {
+                    Thread {
+                        AkulaMail.command(account, wake.wakeEmail, wake.wakeCode, "stop",
+                            { runCatching { protect(it) } }, { addLog(it) })
+                    }.start()
                 }
                 return START_NOT_STICKY
             }
 
-            OlcboxVpnActions.ACTION_START_VPN -> Unit
+            // Пользователь нажал «Подключить» — письмо «старт» шлём заново (смена сети внутри подключения — без письма)
+            OlcboxVpnActions.ACTION_START_VPN -> wakeLocation = null
             else -> {
                 cleanup()
                 stopSelf()
@@ -608,9 +627,26 @@ class OlcboxVpnService : VpnService() {
             // AKULA: разбудить сервер письмом сторожу (сокет почты — мимо VPN) и ждать его дольше:
             // сервер заходит в звонок за 1–2 минуты после письма
             val akula = AkulaWake.settings(applicationContext, config.id)
-            val woke = akula != null && withContext(Dispatchers.IO) {
-                addLog("AKULA: будим сервер письмом")
-                AkulaWake.command(akula, "start", { protect(it) }, { addLog(it) })
+            val woke = when {
+                akula != null -> withContext(Dispatchers.IO) {
+                    addLog("AKULA: будим сервер письмом")
+                    AkulaWake.command(akula, "start", { protect(it) }, { addLog(it) })
+                }
+                // Переподключение (сменилась сеть) — звонок уже идёт, письмо не нужно
+                config.hasWake && wakeLocation?.wakeCode == config.wakeCode -> false
+                config.hasWake -> {
+                    wakeLocation = config
+                    val account = AkulaMailAccountStore.load()
+                    if (account.ok()) {
+                        withContext(Dispatchers.IO) {
+                            addLog("AKULA: будим сервер письмом со своей почты")
+                            AkulaMail.command(account, config.wakeEmail, config.wakeCode, "start", { protect(it) }, { addLog(it) })
+                        }
+                    } else {
+                        openWakeMail(config)
+                    }
+                }
+                else -> false
             }
             olcRtcRuntime.start()
             awaitRuntimeReady(if (woke) AKULA_WAKE_READY_TIMEOUT_MS else MOBILE_READY_TIMEOUT_MS) {
