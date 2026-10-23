@@ -1,5 +1,6 @@
 package org.olcbox.app.vpn.service
 
+import org.olcbox.app.akula.activeLocationWithWake
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -462,7 +463,7 @@ class OlcboxVpnService : VpnService() {
                     coroutineContext.ensureActive()
                     if (requestedGeneration != generation) return@withLock
 
-                    val active = repository.getActiveLocation()
+                    val active = repository.activeLocationWithWake { addLog(it) }
                     val location = active?.location?.normalized()
                     if (location == null || !location.isComplete()) {
                         setStatus(VpnStatus.Error("No active location"))

@@ -14,7 +14,8 @@ internal class WindowsTunController(
 
     suspend fun start(
         tun2SocksBinary: Path,
-        socksPort: Int = PacServer.LOCAL_SOCKS_PORT
+        socksPort: Int = PacServer.LOCAL_SOCKS_PORT,
+        dnsServer: String = MAPDNS_ADDRESS
     ): Process {
         ensureAdministratorOrRequestRestart()
 
@@ -25,7 +26,7 @@ internal class WindowsTunController(
 
         try {
             waitForAdapter(process)
-            installRoutes()
+            installRoutes(dnsServer)
             routesInstalled = true
             addLog("Windows TUN connected on $TUN_NAME")
             return process
@@ -119,7 +120,26 @@ internal class WindowsTunController(
         }.getOrDefault(false)
     }
 
-    private suspend fun installRoutes() {
+    /**
+     * AKULA (23.10.2026): номер реального сетевого адаптера (через который сейчас идёт интернет) — olcRTC
+     * привязывает к нему свои сокеты, чтобы звонок, его DNS и медиа шли мимо туннеля, а не сами в себя.
+     * Вызывать до поднятия TUN.
+     */
+    suspend fun physicalInterfaceIndex(): Int? = runCatching {
+        runPowerShell(
+            """
+            ${'$'}r = Find-NetRoute -RemoteIPAddress '$MAPDNS_ADDRESS' -ErrorAction SilentlyContinue |
+              Where-Object { ${'$'}_.InterfaceAlias -ne '$TUN_NAME' -and ${'$'}_.InterfaceIndex } | Select-Object -First 1
+            if (-not ${'$'}r) {
+              ${'$'}r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+                Where-Object { ${'$'}_.InterfaceAlias -ne '$TUN_NAME' } | Sort-Object RouteMetric | Select-Object -First 1
+            }
+            if (${'$'}r) { ${'$'}r.InterfaceIndex }
+            """.trimIndent()
+        ).trim().lines().lastOrNull { it.isNotBlank() }?.trim()?.toIntOrNull()
+    }.getOrNull()
+
+    private suspend fun installRoutes(dnsServer: String) {
         runPowerShell(
             """
             ${'$'}ErrorActionPreference = 'Stop'
@@ -139,7 +159,9 @@ internal class WindowsTunController(
 
             New-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '0.0.0.0/1' -NextHop '0.0.0.0' -RouteMetric 1 | Out-Null
             New-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '128.0.0.0/1' -NextHop '0.0.0.0' -RouteMetric 1 | Out-Null
-            Set-DnsClientServerAddress -InterfaceIndex ${'$'}ifIndex -ServerAddresses '$MAPDNS_ADDRESS'
+            Set-DnsClientServerAddress -InterfaceIndex ${'$'}ifIndex -ServerAddresses '$dnsServer'
+            # DNS туннеля — первым: иначе Windows ждёт ответа DNS другого адаптера
+            Set-NetIPInterface -InterfaceIndex ${'$'}ifIndex -InterfaceMetric 1 -ErrorAction SilentlyContinue
             """.trimIndent()
         )
     }

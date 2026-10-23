@@ -1,5 +1,6 @@
 package org.olcbox.app.vpn
 
+import org.olcbox.app.akula.activeLocationWithWake
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -99,6 +100,11 @@ class DesktopVpnManager private constructor(
     // пользователя из настроек; её нет — открываем готовое письмо в почтовой программе (как страница включения).
     // «Стоп» привратник выполнит, когда в звонке никого не останется (Павел 23.10.2026)
     @Volatile private var wakeLocation: LocationConfig? = null
+
+    // Режим TUN на Windows (Павел 23.10.2026, журнал Насти): сокеты olcRTC — к реальному адаптеру, мимо туннеля;
+    // DNS системы — через туннель по TCP (SOCKS olcRTC не умеет UDP)
+    @Volatile private var olcBindInterface: Int? = null
+    private var dnsForwarder: org.olcbox.app.vpn.desktop.WindowsDnsForwarder? = null
 
     private fun wakeMail(location: LocationConfig, action: String, interactive: Boolean, attempts: Int = 4): Boolean {
         val account = AkulaMailAccountStore.load()
@@ -264,7 +270,7 @@ class DesktopVpnManager private constructor(
     private suspend fun startDesktopMode(requestGeneration: Long, isRestart: Boolean) {
         setStatus(if (isRestart) VpnStatus.Reconnecting else VpnStatus.Connecting)
 
-        val active = locationsRepository.getActiveLocation()
+        val active = locationsRepository.activeLocationWithWake(::addLog)
         val location = active?.location?.normalized()
 
         if (location == null || !location.isComplete()) {
@@ -322,6 +328,13 @@ class DesktopVpnManager private constructor(
 
             if (desktopMode == DesktopMode.WindowsTun) {
                 windowsTunController.ensureAdministratorOrRequestRestart()
+            }
+            olcBindInterface = if (desktopMode == DesktopMode.WindowsTun) {
+                windowsTunController.physicalInterfaceIndex().also {
+                    addLog(if (it != null) "olcRTC: сокеты — через адаптер $it, мимо туннеля" else "olcRTC: реальный адаптер не найден")
+                }
+            } else {
+                null
             }
 
             // Звонок белых списков спит, пока его не разбудят письмом, и просыпается 20–40 секунд. Клиент olcRTC,
@@ -394,7 +407,7 @@ class DesktopVpnManager private constructor(
 
             when (desktopMode) {
                 DesktopMode.LinuxTun -> startLinuxTun(socksSettings.port, requestGeneration)
-                DesktopMode.WindowsTun -> startWindowsTun(socksSettings.port, requestGeneration)
+                DesktopMode.WindowsTun -> startWindowsTun(socksSettings, requestGeneration)
                 DesktopMode.SystemProxy -> startSystemProxy(socksSettings, requestGeneration)
                 DesktopMode.LocalSocks -> Unit
             }
@@ -445,9 +458,21 @@ class DesktopVpnManager private constructor(
         startTunLogReader(tunProcess ?: error("hev-socks5-tunnel process is missing"))
     }
 
-    private suspend fun startWindowsTun(socksPort: Int, requestGeneration: Long) {
+    private suspend fun startWindowsTun(socksSettings: DesktopSocksProxySettings, requestGeneration: Long) {
         val tun2SocksBinary = DesktopNativeAssets.resolveWindowsTun2SocksBinary()
-        tunProcess = windowsTunController.start(tun2SocksBinary, socksPort)
+        val forwarder = org.olcbox.app.vpn.desktop.WindowsDnsForwarder(
+            socksHost = socksSettings.host,
+            socksPort = socksSettings.port,
+            socksUser = socksSettings.username,
+            socksPass = socksSettings.password,
+            addLog = ::addLog
+        )
+        val dns = runCatching { forwarder.start(); dnsForwarder = forwarder; "127.0.0.1" }
+            .getOrElse {
+                addLog("DNS: локальный пересыльщик не запустился (${it.message}) — DNS туннеля 1.1.1.1")
+                "1.1.1.1"
+            }
+        tunProcess = windowsTunController.start(tun2SocksBinary, socksSettings.port, dns)
 
         if (requestGeneration != generation) {
             throw CancellationException("Desktop start superseded")
@@ -574,6 +599,8 @@ class DesktopVpnManager private constructor(
                     addLog("Windows TUN stop failed: ${it.message}")
                 }
                 tunProcess = null
+                dnsForwarder?.stop()
+                dnsForwarder = null
             }
             DesktopMode.SystemProxy -> {
                 runCatching {
@@ -661,6 +688,7 @@ class DesktopVpnManager private constructor(
         // Закрытый stdin = «выйди из звонка вежливо»: на Windows destroy() — это TerminateProcess, olcRTC не успевал
         // попрощаться, и сервер видел уход только через минуту (по таймауту)
         processBuilder.environment()["OLCRTC_STDIN_LIFELINE"] = "1"
+        olcBindInterface?.let { processBuilder.environment()["OLCRTC_BIND_IFINDEX"] = it.toString() }
         processBuilder.environment()["no_proxy"] = "127.0.0.1,localhost"
 
         val startedProcess = try {

@@ -17,7 +17,9 @@ class JvmLogExporter : LogExporter {
 
         return runCatching {
             path.parent?.let { Files.createDirectories(it) }
-            Files.writeString(path, content)
+            // Метка UTF-8: без неё Блокнот и другие программы Windows открывали журнал как ANSI
+            // и русский текст превращался в «Р—РІРѕРЅРѕРє…» (Павел 23.10.2026)
+            Files.writeString(path, "﻿" + content)
             path.toAbsolutePath().toString()
         }
     }
