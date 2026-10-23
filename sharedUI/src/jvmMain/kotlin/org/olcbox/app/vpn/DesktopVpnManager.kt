@@ -124,6 +124,34 @@ class DesktopVpnManager private constructor(
         scope.launch(Dispatchers.IO) { wakeMail(prev, "stop", interactive = false) }
     }
 
+    // Автопереключение серверов — как на телефоне (Павел 16.10 и 23.10.2026): выбранное не подключилось —
+    // пробуем следующие по списку. По умолчанию выключено, включает сам пользователь
+    private val prefs by lazy { com.russhwolf.settings.Settings() }
+    private val _autoFailoverEnabled = MutableStateFlow(
+        runCatching { prefs.getBoolean(KEY_AUTO_FAILOVER, false) }.getOrDefault(false)
+    )
+    val autoFailoverEnabled: StateFlow<Boolean> = _autoFailoverEnabled.asStateFlow()
+
+    fun setAutoFailoverEnabled(enabled: Boolean) {
+        _autoFailoverEnabled.value = enabled
+        runCatching { prefs.putBoolean(KEY_AUTO_FAILOVER, enabled) }
+    }
+
+    private suspend fun tryOtherLocations(requestGeneration: Long) {
+        if (_status.value !is VpnStatus.Error) return
+        val first = locationsRepository.getActiveLocation()?.storageId
+        val others = runCatching { locationsRepository.getAllLocations() }.getOrDefault(emptyList())
+            .filter { it.location.isComplete() && it.storageId != first }
+        for (entry in others) {
+            if (requestGeneration != generation) return
+            addLog("Автопереключение: пробую «${entry.location.displayName()}»")
+            stopDesktopMode(finalStatus = false)
+            locationsRepository.setActiveLocationId(entry.storageId)
+            startDesktopMode(requestGeneration, isRestart = false)
+            if (_status.value !is VpnStatus.Error) return
+        }
+    }
+
     override fun needsPermission(): Boolean = false
 
     override fun startVpn() {
@@ -147,6 +175,7 @@ class DesktopVpnManager private constructor(
                 }
 
                 startDesktopMode(requestGeneration, isRestart = shouldRestart)
+                if (_autoFailoverEnabled.value) tryOtherLocations(requestGeneration)
             }
         }
     }
@@ -909,6 +938,7 @@ class DesktopVpnManager private constructor(
         const val OLC_STARTUP_STABILITY_MS = 1_500L
         const val READY_POLL_INTERVAL_MS = 200L
         const val TCP_CONNECT_TIMEOUT_MS = 250L
+        const val KEY_AUTO_FAILOVER = "akula_auto_failover"
         const val PROCESS_GRACEFUL_STOP_MS = 3_000L
         const val PROCESS_STOP_TIMEOUT_MS = 3_000L
         const val PROCESS_KILL_TIMEOUT_MS = 1_000L

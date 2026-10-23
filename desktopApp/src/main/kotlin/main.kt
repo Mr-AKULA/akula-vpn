@@ -149,6 +149,8 @@ fun main(args: Array<String>) {
     // Compose 1.13 регистрирует графику Skiko только с первым окном, а значок в трее рисуется раньше —
     // без этого вызова приложение падает на старте («No Compose UI graphics implementation is registered»).
     registerSkikoComposeImplementation()
+    // Язык, выбранный в настройках (как на телефоне)
+    org.olcbox.app.ui.i18n.AppLang.mode.value = org.olcbox.app.ui.i18n.AppLangStore.load()
     val launchArgs = if (args.any { it.startsWith("olcbox:", ignoreCase = true) }) {
         args.filterNot { it == WINDOWS_ELEVATED_START_ARGUMENT }.toTypedArray()
     } else args
@@ -351,6 +353,7 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
             val logs by dependencies.homeViewModel.logs.collectAsState()
             val homeState by dependencies.homeViewModel.state.collectAsState()
             val socksProxySettings by dependencies.vpnManager.socksProxySettings.collectAsState()
+            val autoFailoverEnabled by dependencies.vpnManager.autoFailoverEnabled.collectAsState()
 
             fun reloadLocationsAfterImport(onComplete: () -> Unit = {}) {
                 dependencies.locationViewModel.loadLocations {
@@ -445,6 +448,8 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
                         },
                         selectedRoutingModeId = socksProxySettings.routingMode.name,
                         isConnectionActive = homeState.isVpnConnected,
+                        autoFailoverEnabled = autoFailoverEnabled,
+                        onAutoFailoverChanged = dependencies.vpnManager::setAutoFailoverEnabled,
                         onDismiss = { showDesktopSettings = false },
                         onCopyConfigClick = {
                             dependencies.homeViewModel.onCopyFullConfigClicked()

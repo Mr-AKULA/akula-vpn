@@ -34,6 +34,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import org.olcbox.app.ui.i18n.title
+import org.olcbox.app.ui.i18n.AppLangStore
+import org.olcbox.app.ui.i18n.AppLang
+import androidx.compose.material3.Switch
+import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.ContentPaste
@@ -127,6 +133,9 @@ fun ApplicationSettingsSheet(
     ),
     selectedRoutingModeId: String = routingModeOptions.firstOrNull()?.id.orEmpty(),
     isConnectionActive: Boolean = false,
+    // null — пункт не показывать (у платформы нет автопереключения)
+    autoFailoverEnabled: Boolean? = null,
+    onAutoFailoverChanged: (Boolean) -> Unit = {},
     onDismiss: () -> Unit,
     onCopyConfigClick: () -> Unit,
     onSaveLogsClick: () -> Unit,
@@ -190,6 +199,8 @@ fun ApplicationSettingsSheet(
             when (currentRoute) {
                 SharedSettingsRoute.Hub -> SharedSettingsHubContent(
                     updateSettings = updateSettings,
+                    autoFailoverEnabled = autoFailoverEnabled,
+                    onAutoFailoverChanged = onAutoFailoverChanged,
                     subscriptionsCount = subscriptions.size,
                     onConnectionClick = { route = SharedSettingsRoute.Connection },
                     onSubscriptionsClick = { route = SharedSettingsRoute.Subscriptions },
@@ -312,6 +323,8 @@ fun ApplicationSettingsSheet(
 @Composable
 private fun SharedSettingsHubContent(
     updateSettings: AppUpdateSettings,
+    autoFailoverEnabled: Boolean?,
+    onAutoFailoverChanged: (Boolean) -> Unit,
     subscriptionsCount: Int,
     onConnectionClick: () -> Unit,
     onSubscriptionsClick: () -> Unit,
@@ -333,6 +346,29 @@ private fun SharedSettingsHubContent(
         )
 
         Spacer(Modifier.height(8.dp))
+
+        // Пункты и порядок — как на телефоне (AndroidAppSettingsSheets): Павел 23.10.2026, «интерфейс единый»
+        if (autoFailoverEnabled != null) {
+            SharedSwitchRow(
+                title = tr("Автопереключение серверов", "Server auto-switch"),
+                value = if (autoFailoverEnabled) {
+                    tr("Сервер не ответил — сами пробуем следующее", "Server didn't answer — trying the next one")
+                } else {
+                    tr("Выключено — только выбранное подключение", "Off — only the selected connection")
+                },
+                icon = Icons.Outlined.SwapHoriz,
+                checked = autoFailoverEnabled,
+                onCheckedChange = onAutoFailoverChanged
+            )
+        }
+
+        SharedNavigationRow(
+            title = tr("Язык", "Language"),
+            value = AppLang.mode.value.title(),
+            icon = Icons.Outlined.Language,
+            showChevron = false,
+            onClick = { AppLangStore.cycle() }
+        )
 
         SharedNavigationRow(
             title = tr("Подключение", "Connection"),
@@ -1395,6 +1431,59 @@ private fun SharedDangerAction(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.error
             )
+        }
+    }
+}
+
+@Composable
+private fun SharedSwitchRow(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(72.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable { onCheckedChange(!checked) },
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            ) {
+                Icon(imageVector = icon, contentDescription = null, modifier = Modifier.padding(10.dp))
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = value,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     }
 }
