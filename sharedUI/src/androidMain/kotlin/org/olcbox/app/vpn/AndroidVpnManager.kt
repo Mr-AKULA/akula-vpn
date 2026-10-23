@@ -280,8 +280,25 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                     OlcboxVpnState.addLog("Автопереключение: пробую «${entry.location.displayName()}»")
                 }
                 startEntry(entry)
-                if (!_autoFailoverEnabled.value || order.size == 1) return@launch
-                if (waitConnected(entry)) return@launch
+                if (OlcboxVpnState.status.value is VpnStatus.Error) return@launch  // не запустилось (пустой список приложений и т.п.)
+                val tunnelEntry = !entry.awgConfig.isNullOrBlank() || !entry.ovpnConfig.isNullOrBlank()
+                val single = !_autoFailoverEnabled.value || order.size == 1
+                if (single && !tunnelEntry) return@launch  // olcRTC: статус ведёт его служба, как раньше
+                if (waitConnected(entry, patient = single)) {
+                    if (!entry.awgConfig.isNullOrBlank()) OlcboxVpnState.setStatus(VpnStatus.Connected)
+                    return@launch
+                }
+                if (single) {
+                    // Сервер молчит — не крутим «подключение» бесконечно (OpenVPN переподключался вечно)
+                    OlcboxVpnState.addLog("«${entry.location.displayName()}» не ответило")
+                    stopEntry(entry)
+                    kotlinx.coroutines.delay(300)
+                    OlcboxVpnState.setStatus(VpnStatus.Error(org.olcbox.app.ui.i18n.tr(
+                        "Сервер не отвечает — он выключен, удалён или недоступен из этой сети",
+                        "The server does not respond — it is off, deleted or unreachable from this network"
+                    )))
+                    return@launch
+                }
                 OlcboxVpnState.addLog("«${entry.location.displayName()}» не ответило — следующее")
                 stopEntry(entry)
                 kotlinx.coroutines.delay(500)
@@ -316,10 +333,16 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         }
     }
 
-    private suspend fun waitConnected(entry: org.olcbox.app.data.model.LocationEntry): Boolean {
+    /** patient — единственное подключение: ждём дольше (AmneziaWG 15 с, остальное 30 с), спешить некуда. */
+    private suspend fun waitConnected(entry: org.olcbox.app.data.model.LocationEntry, patient: Boolean = false): Boolean {
         val isAwg = !entry.awgConfig.isNullOrBlank()
         val isOvpn = !entry.ovpnConfig.isNullOrBlank()  // OpenVPN (TLS) подключается дольше WireGuard — 20 с, как olcrtc
-        val deadline = System.currentTimeMillis() + if (isAwg) 8_000 else 20_000
+        val deadline = System.currentTimeMillis() + when {
+            patient && isAwg -> 15_000
+            patient -> 30_000
+            isAwg -> 8_000
+            else -> 20_000
+        }
         while (System.currentTimeMillis() < deadline) {
             if (isAwg && AwgTunnel.hasHandshake()) return true
             if (isOvpn && OvpnTunnel.isConnected()) return true

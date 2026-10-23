@@ -22,7 +22,9 @@ object AwgTunnel {
     private val tunnel = object : Tunnel {
         override fun getName() = "akula"
         override fun onStateChange(newState: Tunnel.State) {
-            OlcboxVpnState.setStatus(if (newState == Tunnel.State.UP) VpnStatus.Connected else VpnStatus.Disconnected)
+            // «Подключено» — только после рукопожатия с сервером (ставит AndroidVpnManager): раньше горело сразу,
+            // даже если сервера уже нет (Павел 17.10.2026, удалённый тестовый сервер)
+            OlcboxVpnState.setStatus(if (newState == Tunnel.State.UP) VpnStatus.Connecting else VpnStatus.Disconnected)
         }
     }
 
