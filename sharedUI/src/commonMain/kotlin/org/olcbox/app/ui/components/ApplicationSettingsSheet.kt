@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -150,9 +151,13 @@ fun ApplicationSettingsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
+        // AKULA: на Windows подложка листа не рисовалась — сквозь настройки был виден главный экран.
+        // Свой непрозрачный фон, как на телефоне (Павел 23.10.2026: интерфейс одинаковый на всех устройствах)
         AnimatedContent(
+            modifier = Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow),
             targetState = route,
             transitionSpec = {
                 fadeIn(
