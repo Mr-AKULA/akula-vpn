@@ -70,12 +70,29 @@ class JvmUpdateInstaller(
     private fun launchWindowsInstaller(downloaded: Path) {
         val file = if (downloaded.toString().endsWith(".zip", ignoreCase = true)) unzipInstaller(downloaded) else downloaded
         val path = file.toAbsolutePath().toString()
-        val command = if (path.endsWith(".msi", ignoreCase = true)) {
-            listOf("msiexec.exe", "/i", path)
-        } else {
-            listOf("cmd.exe", "/c", "start", "\"AKULA VPN\"", path)
-        }
-        ProcessBuilder(command).redirectErrorStream(true).start()
+        val target = if (path.endsWith(".msi", ignoreCase = true)) msiInstallScript(file) else file
+        ProcessBuilder(listOf("cmd.exe", "/c", "start", "\"AKULA VPN\"", "/min", target.toAbsolutePath().toString()))
+            .redirectErrorStream(true).start()
+    }
+
+    /**
+     * AKULA (24.10.2026): MSI ставится без мастера с кнопками — только полоса прогресса (msiexec /passive), права
+     * администратора Windows спросит сама. После установки программа открывается снова (она закрылась, чтобы
+     * установщик заменил файлы).
+     */
+    private fun msiInstallScript(msi: Path): Path {
+        val app = System.getProperty("jpackage.app-path")?.takeIf { it.isNotBlank() }
+            ?: (System.getenv("ProgramFiles") ?: "C:\\Program Files") + "\\AKULA VPN\\AKULA VPN.exe"
+        val script = msi.resolveSibling("install-update.cmd")
+        Files.writeString(
+            script,
+            // chcp 65001: путь к профилю может быть с кириллицей (C:\Users\Павел), а файл — в UTF-8
+            "@echo off\r\nchcp 65001 >nul\r\n" +
+                "msiexec.exe /i \"${msi.toAbsolutePath()}\" /passive /norestart\r\n" +
+                "start \"\" \"$app\"\r\n",
+            Charsets.UTF_8
+        )
+        return script
     }
 
     /** Архив для старых версий: внутри AKULA-VPN-windows.exe — достаём его рядом и запускаем */

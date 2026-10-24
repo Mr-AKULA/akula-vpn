@@ -91,6 +91,21 @@ class AppUpdateServiceTest {
     }
 
     @Test
+    fun prefersAkulaWindowsMsiOverExeAndSkipsOldVersionsUpdater() {
+        val selected = AppUpdateService.selectAsset(
+            assets = listOf(
+                GithubReleaseAsset("AKULA-VPN-android.apk", "https://example/apk"),
+                GithubReleaseAsset("AKULA-VPN-windows-amd64-update.vbs", "https://example/vbs"),
+                GithubReleaseAsset("AKULA-VPN-windows.exe", "https://example/exe"),
+                GithubReleaseAsset("AKULA-VPN-windows.msi", "https://example/msi")
+            ),
+            platform = UpdatePlatform("windows", "amd64")
+        )
+
+        assertEquals("AKULA-VPN-windows.msi", selected?.name)
+    }
+
+    @Test
     fun selectsAkulaWindowsInstallerWithoutArchInName() {
         val selected = AppUpdateService.selectAsset(
             assets = listOf(

@@ -145,7 +145,7 @@ class AppUpdateService(
                 "windows" -> assets.filter { asset ->
                     val name = asset.name.lowercase()
                     "windows" in name && (name.endsWith(".exe") || name.endsWith(".msi"))
-                }.let { selectPreferredAsset(it, listOf(".exe", ".msi")) }
+                }.let { selectPreferredAsset(it, listOf(".msi", ".exe")) }  // MSI ставится без мастера (1.2.7)
                     ?: selectAssetByTokens(assets, listOf("windows"), platform.preferredExtensions)
                 else -> selectAssetByTokens(assets, platform.assetToken, platform.preferredExtensions)
             }
