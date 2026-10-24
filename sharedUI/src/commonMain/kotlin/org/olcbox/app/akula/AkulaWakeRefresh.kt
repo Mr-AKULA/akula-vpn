@@ -15,8 +15,8 @@ suspend fun LocationsRepository.activeLocationWithWake(log: (String) -> Unit): L
     val url = active.subscriptionUrl
     val akulaWhitelist = active.storageId.startsWith("akula_") &&
         location.bypassProvider == LocationConfig.PROVIDER_JITSI && !location.isAwg && !location.isOvpn
-    if (!akulaWhitelist || location.hasWake || url.isNullOrBlank()) return active
-    log("AKULA: в подключении нет почты сервера — обновляю подписку")
+    if (!akulaWhitelist || location.hasServerMailbox || url.isNullOrBlank()) return active
+    log("AKULA: в подключении нет ящика сервера — обновляю подписку")
     runCatching { refreshSubscription(url) }
         .onFailure { log("AKULA: подписка не обновилась: ${it.message}") }
     return getActiveLocation() ?: active

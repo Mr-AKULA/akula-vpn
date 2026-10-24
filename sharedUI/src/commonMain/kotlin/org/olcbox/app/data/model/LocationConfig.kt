@@ -41,11 +41,15 @@ data class LocationConfig(
     @SerialName("wake_email")
     val wakeEmail: String = "",
     @SerialName("wake_code")
-    val wakeCode: String = ""
+    val wakeCode: String = "",
+    // Пароль приложения ящика сервера (Павел 24.10.2026): команда кладётся прямо в ящик по IMAP — работает при белых списках
+    @SerialName("wake_password")
+    val wakePassword: String = ""
 ) {
     val isAwg: Boolean get() = awgConfig.isNotBlank()
     val isOvpn: Boolean get() = ovpnConfig.isNotBlank()
     val hasWake: Boolean get() = wakeEmail.isNotBlank() && wakeCode.isNotBlank()
+    val hasServerMailbox: Boolean get() = hasWake && wakePassword.isNotBlank()
 
     fun normalized(): LocationConfig {
         val provider = normalizeProvider(bypassProvider)
@@ -59,6 +63,7 @@ data class LocationConfig(
             dnsServer = dnsServer.trim().take(MAX_DNS_SERVER_LENGTH),
             wakeEmail = wakeEmail.trim(),
             wakeCode = wakeCode.trim(),
+            wakePassword = wakePassword.trim(),
             vp8Fps = sanitizeVp8Fps(vp8Fps),
             vp8Batch = sanitizeVp8Batch(vp8Batch)
         )
@@ -605,7 +610,9 @@ data class LocationEntry(
     @SerialName("wake_email")
     val wakeEmail: String? = null,
     @SerialName("wake_code")
-    val wakeCode: String? = null
+    val wakeCode: String? = null,
+    @SerialName("wake_password")
+    val wakePassword: String? = null
 ) {
     val location: LocationConfig
         get() {
@@ -638,7 +645,8 @@ data class LocationEntry(
                 awgConfig = awgConfig.orEmpty(),
                 ovpnConfig = ovpnConfig.orEmpty(),
                 wakeEmail = wakeEmail.orEmpty(),
-                wakeCode = wakeCode.orEmpty()
+                wakeCode = wakeCode.orEmpty(),
+                wakePassword = wakePassword.orEmpty()
             ).normalized()
         }
 
@@ -664,7 +672,8 @@ data class LocationEntry(
             awgConfig = config.awgConfig.takeIf { it.isNotBlank() },
             ovpnConfig = config.ovpnConfig.takeIf { it.isNotBlank() },
             wakeEmail = config.wakeEmail.takeIf { it.isNotBlank() },
-            wakeCode = config.wakeCode.takeIf { it.isNotBlank() }
+            wakeCode = config.wakeCode.takeIf { it.isNotBlank() },
+            wakePassword = config.wakePassword.takeIf { it.isNotBlank() }
         )
     }
 
@@ -691,7 +700,8 @@ data class LocationEntry(
                 awgConfig = config.awgConfig.takeIf { it.isNotBlank() },
                 ovpnConfig = config.ovpnConfig.takeIf { it.isNotBlank() },
                 wakeEmail = config.wakeEmail.takeIf { it.isNotBlank() },
-                wakeCode = config.wakeCode.takeIf { it.isNotBlank() }
+                wakeCode = config.wakeCode.takeIf { it.isNotBlank() },
+                wakePassword = config.wakePassword.takeIf { it.isNotBlank() }
             ).normalized()
         }
 

@@ -283,6 +283,12 @@ class OlcboxVpnService : VpnService() {
                 if (akula != null) {
                     Thread { AkulaWake.command(akula, "stop", { runCatching { protect(it) }.getOrDefault(false) }, { addLog(it) }) }
                         .start()
+                } else if (wake != null && wake.hasServerMailbox) {
+                    Thread {
+                        org.olcbox.app.akula.AkulaServerMailbox.command(
+                            wake.wakeEmail, wake.wakePassword, wake.wakeCode, "stop", { runCatching { protect(it) } }, { addLog(it) }
+                        )
+                    }.start()
                 } else if (wake != null && account.ok()) {
                     Thread {
                         AkulaMail.command(account, wake.wakeEmail, wake.wakeCode, "stop",
@@ -635,6 +641,15 @@ class OlcboxVpnService : VpnService() {
                 }
                 // Переподключение (сменилась сеть) — звонок уже идёт, письмо не нужно
                 config.hasWake && wakeLocation?.wakeCode == config.wakeCode -> false
+                config.hasServerMailbox -> {
+                    wakeLocation = config
+                    withContext(Dispatchers.IO) {
+                        addLog("AKULA: будим сервер — команда в ящик сервера")
+                        org.olcbox.app.akula.AkulaServerMailbox.command(
+                            config.wakeEmail, config.wakePassword, config.wakeCode, "start", { protect(it) }, { addLog(it) }
+                        )
+                    } || openWakeMail(config)
+                }
                 config.hasWake -> {
                     wakeLocation = config
                     val account = AkulaMailAccountStore.load()

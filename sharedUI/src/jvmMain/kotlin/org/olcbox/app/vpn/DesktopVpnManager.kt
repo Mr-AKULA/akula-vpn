@@ -107,6 +107,17 @@ class DesktopVpnManager private constructor(
     private var dnsForwarder: org.olcbox.app.vpn.desktop.WindowsDnsForwarder? = null
 
     private fun wakeMail(location: LocationConfig, action: String, interactive: Boolean, attempts: Int = 4): Boolean {
+        // Ящик сервера из подписки — команда прямо в него (IMAP), как в сборке Павла: работает и при белых списках
+        if (location.hasServerMailbox) {
+            addLog("AKULA: «$action» — в ящик сервера")
+            if (org.olcbox.app.akula.AkulaServerMailbox.command(
+                    location.wakeEmail, location.wakePassword, location.wakeCode, action,
+                    log = ::addLog, attempts = attempts
+                )
+            ) {
+                return true
+            }
+        }
         val account = AkulaMailAccountStore.load()
         if (account.ok()) {
             addLog("AKULA: «$action» — письмо на почту сервера")

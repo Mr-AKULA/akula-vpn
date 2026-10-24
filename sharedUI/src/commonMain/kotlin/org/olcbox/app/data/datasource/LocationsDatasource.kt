@@ -1121,7 +1121,8 @@ class LocationsRepositoryImpl(
                 root.string("dns")
             ),
             wakeEmail = firstNotBlank(source.string("wake_email"), root.string("wake_email")),
-            wakeCode = firstNotBlank(source.string("wake_code"), root.string("wake_code"))
+            wakeCode = firstNotBlank(source.string("wake_code"), root.string("wake_code")),
+            wakePassword = firstNotBlank(source.string("wake_password"), root.string("wake_password"))
         ).normalized()
 
         if (!location.isComplete()) return null

@@ -152,7 +152,8 @@ class LocationsRepositoryImplTest {
                   "bypass_provider": "jitsi",
                   "transport": "datachannel",
                   "wake_email": "gate@yandex.ru",
-                  "wake_code": "ABCdef23456789"
+                  "wake_code": "ABCdef23456789",
+                  "wake_password": "apppassword123"
                 }
               ]
             }
@@ -164,6 +165,8 @@ class LocationsRepositoryImplTest {
         assertEquals("gate@yandex.ru", location.wakeEmail)
         assertEquals("ABCdef23456789", location.wakeCode)
         assertTrue(location.hasWake)
+        assertEquals("apppassword123", location.wakePassword)
+        assertTrue(location.hasServerMailbox)
     }
 
     @Test
