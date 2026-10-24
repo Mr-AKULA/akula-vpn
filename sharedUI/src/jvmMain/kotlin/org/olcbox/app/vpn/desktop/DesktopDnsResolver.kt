@@ -10,13 +10,38 @@ import java.util.concurrent.TimeUnit
 internal object DesktopDnsResolver {
     const val FALLBACK_DNS_SERVER = "1.1.1.1:53"
 
+    // AKULA (24.10.2026): при белых списках мобильного интернета 1.1.1.1 и 8.8.8.8 закрыты — olcRTC не находил
+    // meet.egovm.ru, и белые списки работали только по Wi-Fi. Берём DNS текущей сети (оператор, роутер),
+    // как телефон; запасной — Яндекс DNS, он открыт и при белых списках.
+    const val WINDOWS_FALLBACK_DNS_SERVER = "77.88.8.8:53"
+
     fun current(): String {
         return when (DesktopPaths.os) {
             DesktopOs.Linux -> currentLinuxDnsServer() ?: FALLBACK_DNS_SERVER
+            DesktopOs.Windows -> currentWindowsDnsServer() ?: WINDOWS_FALLBACK_DNS_SERVER
             DesktopOs.MacOS,
-            DesktopOs.Windows,
             DesktopOs.Other -> FALLBACK_DNS_SERVER
         }
+    }
+
+    /** DNS адаптера, через который сейчас идёт интернет (не туннель AKULA) */
+    private fun currentWindowsDnsServer(): String? {
+        val script = """
+            ${'$'}r = Find-NetRoute -RemoteIPAddress '77.88.8.8' -ErrorAction SilentlyContinue |
+              Where-Object { ${'$'}_.InterfaceAlias -ne 'Olcbox' -and ${'$'}_.InterfaceIndex } | Select-Object -First 1
+            if (-not ${'$'}r) {
+              ${'$'}r = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+                Where-Object { ${'$'}_.InterfaceAlias -ne 'Olcbox' } | Sort-Object RouteMetric | Select-Object -First 1
+            }
+            if (${'$'}r) {
+              (Get-DnsClientServerAddress -InterfaceIndex ${'$'}r.InterfaceIndex -AddressFamily IPv4).ServerAddresses |
+                Where-Object { ${'$'}_ -notlike '127.*' } | Select-Object -First 1
+            }
+        """.trimIndent()
+        val output = runCommand(listOf("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script), WINDOWS_TIMEOUT_SECONDS)
+        val address = output?.lineSequence()?.map { it.trim() }?.lastOrNull { it.isNotEmpty() }?.let(::ipLiteralOrNull)
+            ?: return null
+        return dnsEndpoint(address)
     }
 
     private fun currentLinuxDnsServer(): String? {
@@ -42,12 +67,12 @@ internal object DesktopDnsResolver {
         )
     }
 
-    private fun runCommand(command: List<String>): String? {
+    private fun runCommand(command: List<String>, timeoutSeconds: Long = COMMAND_TIMEOUT_SECONDS): String? {
         return runCatching {
             val process = ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .start()
-            if (!process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) {
                 process.destroyForcibly()
                 return@runCatching null
             }
@@ -124,4 +149,5 @@ internal object DesktopDnsResolver {
 
     private val DEFAULT_ROUTE_DEVICE = Regex("(?:^|\\s)dev\\s+(\\S+)")
     private const val COMMAND_TIMEOUT_SECONDS = 2L
+    private const val WINDOWS_TIMEOUT_SECONDS = 15L
 }

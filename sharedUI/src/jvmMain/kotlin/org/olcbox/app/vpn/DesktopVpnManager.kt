@@ -968,6 +968,7 @@ class DesktopVpnManager private constructor(
     }
 
     private fun addLog(message: String) {
+        org.olcbox.app.vpn.desktop.DesktopFileLog.append(message)
         _logs.update {
             (it + message).takeLast(MAX_LOG_ENTRIES)
         }

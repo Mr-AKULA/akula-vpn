@@ -150,15 +150,19 @@ internal class WindowsTunController(
               Where-Object { ${'$'}_.IPAddress -eq '$TUN_IPV4_ADDRESS' } |
               Remove-NetIPAddress -Confirm:${'$'}false -ErrorAction SilentlyContinue
 
-            New-NetIPAddress -InterfaceIndex ${'$'}ifIndex -IPAddress '$TUN_IPV4_ADDRESS' -PrefixLength $TUN_IPV4_PREFIX_LENGTH -AddressFamily IPv4 | Out-Null
+            New-NetIPAddress -InterfaceIndex ${'$'}ifIndex -IPAddress '$TUN_IPV4_ADDRESS' -PrefixLength $TUN_IPV4_PREFIX_LENGTH -AddressFamily IPv4 -PolicyStore ActiveStore | Out-Null
+
+            # До 1.2.7 маршруты были постоянными: переживали закрытие программы и перезагрузку, и следующий запуск
+            # падал на «уже существует» (Павел 24.10.2026, ноут). Убираем остатки, новые — только на время работы
+            $PERSISTENT_ROUTES_CLEANUP
 
             Get-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '0.0.0.0/1' -ErrorAction SilentlyContinue |
               Remove-NetRoute -Confirm:${'$'}false -ErrorAction SilentlyContinue
             Get-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '128.0.0.0/1' -ErrorAction SilentlyContinue |
               Remove-NetRoute -Confirm:${'$'}false -ErrorAction SilentlyContinue
 
-            New-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '0.0.0.0/1' -NextHop '0.0.0.0' -RouteMetric 1 | Out-Null
-            New-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '128.0.0.0/1' -NextHop '0.0.0.0' -RouteMetric 1 | Out-Null
+            New-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '0.0.0.0/1' -NextHop '0.0.0.0' -RouteMetric 1 -PolicyStore ActiveStore | Out-Null
+            New-NetRoute -InterfaceIndex ${'$'}ifIndex -DestinationPrefix '128.0.0.0/1' -NextHop '0.0.0.0' -RouteMetric 1 -PolicyStore ActiveStore | Out-Null
             Set-DnsClientServerAddress -InterfaceIndex ${'$'}ifIndex -ServerAddresses '$dnsServer'
             # DNS туннеля — первым: иначе Windows ждёт ответа DNS другого адаптера
             Set-NetIPInterface -InterfaceIndex ${'$'}ifIndex -InterfaceMetric 1 -ErrorAction SilentlyContinue
@@ -169,6 +173,7 @@ internal class WindowsTunController(
     private suspend fun removeRoutes() {
         runPowerShell(
             """
+            $PERSISTENT_ROUTES_CLEANUP
             ${'$'}adapter = Get-NetAdapter -Name '$TUN_NAME' -ErrorAction SilentlyContinue
             if (${'$'}null -eq ${'$'}adapter) { exit 0 }
             ${'$'}ifIndex = ${'$'}adapter.ifIndex
@@ -216,6 +221,12 @@ internal class WindowsTunController(
 
     internal companion object {
         const val TUN_NAME = "Olcbox"
+
+        /** Постоянные маршруты 0.0.0.0/1 и 128.0.0.0/1, оставленные версиями до 1.2.7 */
+        private const val PERSISTENT_ROUTES_CLEANUP =
+            "Get-NetRoute -PolicyStore PersistentStore -AddressFamily IPv4 -ErrorAction SilentlyContinue | " +
+                "Where-Object { ${'$'}_.DestinationPrefix -eq '0.0.0.0/1' -or ${'$'}_.DestinationPrefix -eq '128.0.0.0/1' } | " +
+                "Remove-NetRoute -Confirm:${'$'}false -ErrorAction SilentlyContinue"
         const val TUN_MTU = 1500
         const val TUN_IPV4_ADDRESS = "10.0.88.88"
         const val TUN_IPV4_PREFIX_LENGTH = 24
