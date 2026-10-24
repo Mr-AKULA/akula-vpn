@@ -14,6 +14,9 @@ If WScript.Arguments.Count > 0 Then msi = WScript.Arguments(0)
 
 ' —тара€ верси€ держит свои файлы Ч закрываем еЄ (VPN на минуту выключитс€)
 sh.Run "taskkill /f /im ""AKULA VPN.exe""", 0, True
+' ≈Є помощники туннел€ без неЄ держат маршруты Ч без этого у компьютера пропал бы интернет и обновление не скачалось бы
+sh.Run "taskkill /f /im tun2socks-windows-amd64.exe", 0, True
+sh.Run "taskkill /f /im olcrtc-windows-amd64.exe", 0, True
 WScript.Sleep 2000
 
 ' /passive Ч только полоса прогресса, без вопросов; права администратора Windows спросит сама

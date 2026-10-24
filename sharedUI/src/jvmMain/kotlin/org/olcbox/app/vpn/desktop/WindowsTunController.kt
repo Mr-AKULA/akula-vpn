@@ -23,6 +23,8 @@ internal class WindowsTunController(
             .directory(tun2SocksBinary.parent.toFile())
             .redirectErrorStream(true)
             .start()
+        // Программа упала или её закрыли — Windows закроет и tun2socks, иначе маршруты остаются без туннеля
+        WindowsProcessJob.bind(process)
 
         try {
             waitForAdapter(process)

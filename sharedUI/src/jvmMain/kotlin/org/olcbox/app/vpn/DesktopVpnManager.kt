@@ -37,6 +37,7 @@ import org.olcbox.app.vpn.desktop.PacServer
 import org.olcbox.app.vpn.desktop.WindowsAwgController
 import org.olcbox.app.vpn.desktop.WindowsOvpnController
 import org.olcbox.app.vpn.desktop.WindowsTunController
+import org.olcbox.app.vpn.desktop.WindowsProcessJob
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -106,6 +107,12 @@ class DesktopVpnManager private constructor(
     // DNS системы — через туннель по TCP (SOCKS olcRTC не умеет UDP)
     @Volatile private var olcBindInterface: Int? = null
     private var dnsForwarder: org.olcbox.app.vpn.desktop.WindowsDnsForwarder? = null
+
+    init {
+        // Программа открылась после аварийного закрытия: помощники туннеля без самого туннеля держат маршруты,
+        // и у компьютера нет интернета — закрываем их сразу, не дожидаясь подключения
+        scope.launch { runCatching { WindowsProcessJob.killStaleHelpers(::addLog) } }
+    }
 
     private suspend fun wakeMail(location: LocationConfig, action: String, interactive: Boolean, attempts: Int = 4): Boolean {
         // Ящик сервера из подписки — команда прямо в него (IMAP), как в сборке Павла: работает и при белых списках
@@ -345,6 +352,8 @@ class DesktopVpnManager private constructor(
             if (desktopMode == DesktopMode.WindowsTun) {
                 windowsTunController.ensureAdministratorOrRequestRestart()
             }
+            // Помощники от прошлого запуска (аварийное закрытие, версии до 1.2.9) держат маршруты без туннеля
+            if (process == null && tunProcess == null) WindowsProcessJob.killStaleHelpers(::addLog)
             olcBindInterface = if (desktopMode == DesktopMode.WindowsTun) {
                 windowsTunController.physicalInterfaceIndex().also {
                     addLog(if (it != null) "olcRTC: сокеты — через адаптер $it, мимо туннеля" else "olcRTC: реальный адаптер не найден")
@@ -708,7 +717,7 @@ class DesktopVpnManager private constructor(
         processBuilder.environment()["no_proxy"] = "127.0.0.1,localhost"
 
         val startedProcess = try {
-            processBuilder.start()
+            processBuilder.start().also { WindowsProcessJob.bind(it) }
         } catch (e: Exception) {
             runCatching { Files.deleteIfExists(configPath) }
             if (olcRtcConfigPath == configPath) {
