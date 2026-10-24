@@ -431,7 +431,7 @@ fun AndroidMainScreen(
             downloadProgress = updateDownloadProgress,
             onLater = { postponeUpdate(info) },
             onDownload = { downloadUpdate(info) },
-            downloadLabel = if (updateInstaller.downloadedFile(info.asset) != null) "Install" else "Download"
+            downloadLabel = if (updateInstaller.downloadedFile(info.asset) != null) tr("Установить", "Install") else tr("Скачать", "Download")
         )
     }
 

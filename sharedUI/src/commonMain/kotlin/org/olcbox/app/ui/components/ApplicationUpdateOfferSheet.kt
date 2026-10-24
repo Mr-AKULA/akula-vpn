@@ -1,5 +1,6 @@
 package org.olcbox.app.ui.components
 
+import androidx.compose.foundation.background
 import org.olcbox.app.ui.i18n.tr
 
 import androidx.compose.foundation.BorderStroke
@@ -35,17 +36,19 @@ fun ApplicationUpdateOfferSheet(
     downloadProgress: Float?,
     onLater: () -> Unit,
     onDownload: () -> Unit,
-    downloadLabel: String = "Download"
+    downloadLabel: String = tr("Скачать", "Download")
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(
         onDismissRequest = onLater,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         Column(
             modifier = Modifier
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 28.dp),

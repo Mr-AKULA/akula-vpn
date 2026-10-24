@@ -459,13 +459,6 @@ private fun AppSettingsHubContent(
             onClick = onSubscriptionsSharingClick
         )
 
-        SettingsNavigationRow(
-            title = tr("Почта для белых списков", "Whitelist wake mail"),
-            value = org.olcbox.app.ui.components.akulaMailSummary(),
-            icon = Icons.Outlined.Email,
-            enabled = true,
-            onClick = onWakeMailClick
-        )
 
         SettingsNavigationRow(
             title = tr("Обновления", "Updates"),
@@ -1072,7 +1065,7 @@ private fun ApplicationLogsSettingsContent(
         Row(verticalAlignment = Alignment.CenterVertically) {
             SettingsDetailHeader(
                 title = tr("Журнал", "Logs"),
-                subtitle = if (logs.isEmpty()) "No entries" else "${logs.size} entries",
+                subtitle = if (logs.isEmpty()) tr("Пусто", "No entries") else tr("Записей: ${logs.size}", "${logs.size} entries"),
                 onBack = onBack,
                 modifier = Modifier.weight(1f)
             )
@@ -1130,13 +1123,13 @@ private fun UpdatesSettingsContent(
     ) {
         SettingsDetailHeader(
             title = tr("Обновления", "Updates"),
-            subtitle = "Current version ${CurrentAppInfo.value.version}",
+            subtitle = tr("Версия ${CurrentAppInfo.value.version}", "Current version ${CurrentAppInfo.value.version}"),
             onBack = onBack
         )
 
         Spacer(Modifier.height(18.dp))
 
-        SettingsSectionLabel("Check Interval")
+        SettingsSectionLabel(tr("Как часто проверять", "Check Interval"))
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AppUpdateSettings.INTERVAL_PRESETS.forEach { hours ->
@@ -1167,7 +1160,7 @@ private fun UpdatesSettingsContent(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = settings.lastCheckAtEpochMs?.formatDateTime() ?: "Not checked yet",
+                    text = settings.lastCheckAtEpochMs?.formatDateTime() ?: tr("Ещё не проверяли", "Not checked yet"),
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1244,7 +1237,7 @@ private fun SubscriptionsSharingSettingsContent(
             }
 
             Spacer(Modifier.height(6.dp))
-            SettingsSectionLabel("Backup & export")
+            SettingsSectionLabel(tr("Резервная копия", "Backup & export"))
             SettingsNavigationRow(
                 title = tr("Выгрузить все настройки", "Export full configuration"),
                 value = tr("Скопировать все подключения", "Copy all locations to clipboard"),
@@ -1299,16 +1292,16 @@ private fun SubscriptionDetailsSettingsContent(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            SettingsSectionLabel("Overview")
+            SettingsSectionLabel(tr("Обзор", "Overview"))
             SubscriptionStatusCard(item)
 
-            SettingsSectionLabel("Source")
+            SettingsSectionLabel(tr("Источник", "Source"))
             SubscriptionSourceCard(
                 url = item.url,
                 onShareClick = onShareClick
             )
 
-            SettingsSectionLabel("Updates")
+            SettingsSectionLabel(tr("Обновление", "Updates"))
             SubscriptionUpdateCard(
                 item = item,
                 isRefreshing = isRefreshing,
@@ -1372,7 +1365,7 @@ private fun SubscriptionDetailsSettingsContent(
                         supportingText = {
                             Text(
                                 if (hasError) {
-                                    "Use 5m–30d, for example 10m, 6h, or 1d"
+                                    tr("От 5m до 30d, например 10m, 6h или 1d", "Use 5m–30d, for example 10m, 6h, or 1d")
                                 } else if (refreshIntervalInput.isBlank()) {
                                     item.sourceScheduleDescription()
                                 } else {
@@ -1509,7 +1502,7 @@ private fun SubscriptionStatusCard(item: SubscriptionShareItem) {
             SubscriptionStatusDivider()
             SubscriptionStatusMetric(
                 label = tr("Обновлено", "Updated"),
-                value = item.lastRefreshAtEpochMs?.relativeSubscriptionTime() ?: "Not yet",
+                value = item.lastRefreshAtEpochMs?.relativeSubscriptionTime() ?: tr("Ещё нет", "Not yet"),
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 14.dp)
@@ -1518,7 +1511,7 @@ private fun SubscriptionStatusCard(item: SubscriptionShareItem) {
             SubscriptionStatusMetric(
                 label = tr("Далее", "Next"),
                 value = item.nextRefreshAtEpochMs?.relativeSubscriptionTime()
-                    ?: "On app start",
+                    ?: tr("При запуске приложения", "On app start"),
                 modifier = Modifier
                     .weight(1f)
                     .padding(start = 14.dp)
@@ -1648,7 +1641,7 @@ private fun SubscriptionUpdateCard(
                     )
                 }
                 Spacer(Modifier.width(8.dp))
-                Text(if (isRefreshing) "Refreshing…" else "Refresh now")
+                Text(if (isRefreshing) tr("Обновляю…", "Refreshing…") else tr("Обновить сейчас", "Refresh now"))
             }
         }
     }
@@ -2365,7 +2358,7 @@ private fun SocksProxySettingsForm(
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsSectionLabel("Endpoint")
+            SettingsSectionLabel(tr("Адрес", "Endpoint"))
 
             SocksProxyTextField(
                 value = host,
@@ -2377,8 +2370,8 @@ private fun SocksProxySettingsForm(
                 leadingIcon = Icons.Rounded.Public,
                 supportingText = when {
                     !hostValid -> "Listen address is required"
-                    hostChanged && isConnectionActive -> "Saving restarts the active connection"
-                    hostChanged -> "Unsaved change"
+                    hostChanged && isConnectionActive -> tr("Сохранение перезапустит подключение", "Saving restarts the active connection")
+                    hostChanged -> tr("Не сохранено", "Unsaved change")
                     else -> null
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
@@ -2395,8 +2388,8 @@ private fun SocksProxySettingsForm(
                 supportingText = when {
                     port.isBlank() -> "Port is required"
                     !portValid -> "Use ${AndroidSocksProxySettings.MIN_PORT}-${AndroidSocksProxySettings.MAX_PORT}"
-                    portChanged && isConnectionActive -> "Saving restarts the active connection"
-                    portChanged -> "Unsaved change"
+                    portChanged && isConnectionActive -> tr("Сохранение перезапустит подключение", "Saving restarts the active connection")
+                    portChanged -> tr("Не сохранено", "Unsaved change")
                     else -> null
                 },
                 keyboardOptions = KeyboardOptions(
@@ -2407,7 +2400,7 @@ private fun SocksProxySettingsForm(
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            SettingsSectionLabel("Credentials")
+            SettingsSectionLabel(tr("Логин и пароль", "Credentials"))
 
             SocksProxyTextField(
                 value = username,
@@ -2419,8 +2412,8 @@ private fun SocksProxySettingsForm(
                 leadingIcon = Icons.Rounded.Person,
                 supportingText = when {
                     username.isBlank() -> "Username is required"
-                    usernameChanged && isConnectionActive -> "Saving restarts the active connection"
-                    usernameChanged -> "Unsaved change"
+                    usernameChanged && isConnectionActive -> tr("Сохранение перезапустит подключение", "Saving restarts the active connection")
+                    usernameChanged -> tr("Не сохранено", "Unsaved change")
                     else -> null
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next)
@@ -2430,14 +2423,14 @@ private fun SocksProxySettingsForm(
                 value = password,
                 onValueChange = onPasswordChanged,
                 label = tr("Пароль", "Password"),
-                placeholder = "Generated password",
+                placeholder = tr("Пароль создаётся сам", "Generated password"),
                 enabled = enabled,
                 isError = password.isBlank(),
                 leadingIcon = Icons.Rounded.Key,
                 supportingText = when {
                     password.isBlank() -> "Password is required"
-                    passwordChanged && isConnectionActive -> "Saving restarts the active connection"
-                    passwordChanged -> "Unsaved change"
+                    passwordChanged && isConnectionActive -> tr("Сохранение перезапустит подключение", "Saving restarts the active connection")
+                    passwordChanged -> tr("Не сохранено", "Unsaved change")
                     else -> null
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done)
@@ -2781,13 +2774,13 @@ private fun Int.locationCountLabel(): String {
 }
 
 private fun SubscriptionShareItem.scheduleTitle(): String {
-    return if (manualUpdateIntervalMs == null) "Automatic" else "Custom schedule"
+    return if (manualUpdateIntervalMs == null) tr("Автоматически", "Automatic") else tr("Своё расписание", "Custom schedule")
 }
 
 private fun SubscriptionShareItem.scheduleDescription(): String {
     val interval = updateIntervalMs
         ?: updateIntervalHours?.times(60L * 60L * 1_000L)
-    return interval?.friendlySubscriptionSchedule() ?: "Uses the subscription schedule"
+    return interval?.friendlySubscriptionSchedule() ?: tr("По расписанию подписки", "Uses the subscription schedule")
 }
 
 private fun SubscriptionShareItem.sourceScheduleDescription(): String {
@@ -2799,14 +2792,14 @@ private fun SubscriptionShareItem.sourceScheduleDescription(): String {
 
 private fun SubscriptionShareItem.listScheduleDescription(): String {
     val schedule = if (manualUpdateIntervalMs == null) {
-        "Automatic"
+        tr("Автоматически", "Automatic")
     } else {
-        updateIntervalMs?.friendlySubscriptionSchedule() ?: "Custom schedule"
+        updateIntervalMs?.friendlySubscriptionSchedule() ?: tr("Своё расписание", "Custom schedule")
     }
     val refreshed = lastRefreshAtEpochMs
         ?.relativeSubscriptionTime()
-        ?.let { "Updated $it" }
-        ?: "Not updated yet"
+        ?.let { tr("Обновлена $it", "Updated $it") }
+        ?: tr("Ещё не обновлялась", "Not updated yet")
     return "$schedule · $refreshed"
 }
 
@@ -2814,7 +2807,7 @@ private fun String.subscriptionHost(): String {
     return substringAfter("://", this)
         .substringBefore('/')
         .substringBefore('?')
-        .ifBlank { "Subscription source" }
+        .ifBlank { tr("Источник подписки", "Subscription source") }
 }
 
 private fun Long.friendlySubscriptionSchedule(): String {
@@ -2822,7 +2815,7 @@ private fun Long.friendlySubscriptionSchedule(): String {
     val hourMs = 60L * minuteMs
     val dayMs = 24L * hourMs
     return when {
-        this == dayMs -> "Every day"
+        this == dayMs -> tr("Каждый день", "Every day")
         this % dayMs == 0L -> "Every ${this / dayMs} days"
         this == hourMs -> "Every hour"
         this % hourMs == 0L -> "Every ${this / hourMs} hours"
