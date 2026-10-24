@@ -21,3 +21,16 @@ suspend fun LocationsRepository.activeLocationWithWake(log: (String) -> Unit): L
         .onFailure { log("AKULA: подписка не обновилась: ${it.message}") }
     return getActiveLocation() ?: active
 }
+
+/**
+ * Почта сервера не пустила (пароль приложения отозвали и ввели новый в консоли/привратнике) — обновляем подписку
+ * и отдаём подключение с новым паролем, если он поменялся.
+ */
+suspend fun LocationsRepository.refreshedServerMailbox(current: LocationConfig, log: (String) -> Unit): LocationConfig? {
+    val active = getActiveLocation() ?: return null
+    val url = active.subscriptionUrl ?: return null
+    log("AKULA: почта сервера не пустила — обновляю подписку")
+    runCatching { refreshSubscription(url) }.onFailure { log("AKULA: подписка не обновилась: ${it.message}") }
+    val fresh = getActiveLocation()?.location?.normalized() ?: return null
+    return fresh.takeIf { it.hasServerMailbox && it.wakePassword != current.wakePassword }
+}

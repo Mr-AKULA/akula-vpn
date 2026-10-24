@@ -22,6 +22,10 @@ object AkulaServerMailbox {
     private const val HOST = "imap.yandex.ru"
     private const val PORT = 993
 
+    /** Последняя неудача — отказ почты (пароль приложения отозвали/сменили): тогда стоит обновить подписку */
+    @Volatile var lastAuthFailed: Boolean = false
+        private set
+
     /** true — команда в ящике. С повторами: связь рвётся; неверный пароль не повторяем */
     fun command(
         email: String,
@@ -34,6 +38,7 @@ object AkulaServerMailbox {
     ): Boolean {
         val subject = "olc $action ${code.trim()}"
         var last = ""
+        lastAuthFailed = false
         for (attempt in 0 until attempts) {
             try {
                 append(email.trim(), password.trim().replace(" ", ""), subject, protect)
@@ -41,7 +46,8 @@ object AkulaServerMailbox {
                 return true
             } catch (e: Exception) {
                 last = e.message ?: e.toString()
-                if (last.startsWith("AUTH") || attempt == attempts - 1) break
+                lastAuthFailed = last.startsWith("AUTH")
+                if (lastAuthFailed || attempt == attempts - 1) break
             }
             Thread.sleep(2000L * (attempt + 1))
         }

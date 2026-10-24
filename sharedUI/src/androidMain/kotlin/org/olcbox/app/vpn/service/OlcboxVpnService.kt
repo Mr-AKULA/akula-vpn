@@ -1,5 +1,6 @@
 package org.olcbox.app.vpn.service
 
+import org.olcbox.app.akula.refreshedServerMailbox
 import org.olcbox.app.akula.activeLocationWithWake
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -645,9 +646,15 @@ class OlcboxVpnService : VpnService() {
                     wakeLocation = config
                     withContext(Dispatchers.IO) {
                         addLog("AKULA: будим сервер — команда в ящик сервера")
-                        org.olcbox.app.akula.AkulaServerMailbox.command(
+                        val mailbox = org.olcbox.app.akula.AkulaServerMailbox
+                        mailbox.command(
                             config.wakeEmail, config.wakePassword, config.wakeCode, "start", { protect(it) }, { addLog(it) }
-                        )
+                        ) || (mailbox.lastAuthFailed &&
+                            // Пароль приложения отозвали и ввели новый — подписка отдаст его
+                            repository.refreshedServerMailbox(config) { addLog(it) }?.let { fresh ->
+                                wakeLocation = fresh
+                                mailbox.command(fresh.wakeEmail, fresh.wakePassword, fresh.wakeCode, "start", { protect(it) }, { addLog(it) })
+                            } == true)
                     } || openWakeMail(config)
                 }
                 config.hasWake -> {
