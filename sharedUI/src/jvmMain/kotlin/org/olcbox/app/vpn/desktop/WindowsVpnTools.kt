@@ -29,7 +29,7 @@ internal object WindowsVpnTools {
     )
     private val DRIVER = listOf("win10", "win11").flatMap { os ->
         listOf("inf", "cat", "sys").map { "ovpn/dco/$os/ovpn-dco.$it" }
-    }
+    } + listOf("OemVista.inf", "tap0901.cat", "tap0901.sys").map { "ovpn/tap/$it" } // запасной tap-windows6
 
     val dir: Path = Paths.get(System.getenv("ProgramData") ?: "C:\\ProgramData", "AKULA VPN", "vpn")
 

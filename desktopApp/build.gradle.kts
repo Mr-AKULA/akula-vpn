@@ -398,13 +398,21 @@ if (currentBuildOs.isWindows) {
         "https://github.com/OpenVPN/ovpn-dco-win/releases/download/2.8.13/ovpn-dco-win-2.8.13-amd64.zip",
         "7e3bfa83b55771e352c3aa65281a93948674833502302fc02dcb546b957ca9d4"
     )
+    // Запасной драйвер OpenVPN — tap-windows6 (подписан Microsoft, 24.10.2026): у части ноутбуков Windows не создаёт
+    // адаптер ovpn-dco («tap_create_adapter»), а openvpn 2.7 с --disable-dco работает через TAP
+    val downloadTapWindowsAmd64 = verifiedDownload(
+        "downloadTapWindowsAmd64",
+        "https://github.com/OpenVPN/tap-windows6/releases/download/9.27.0/dist.win10.zip",
+        "36e2609b7ceefedcb978ce5c48caf9e0e5af83423717c4e2e3c1d7ebca8f62a5"
+    )
     val windowsVpnTools = layout.buildDirectory.dir("generated/akulaAppResources")
     val prepareWindowsVpnTools = tasks.register("prepareWindowsVpnTools") {
-        dependsOn(downloadAmneziaWgWindowsAmd64, downloadOpenVpnWindowsAmd64, downloadOvpnDcoWindowsAmd64)
+        dependsOn(downloadAmneziaWgWindowsAmd64, downloadOpenVpnWindowsAmd64, downloadOvpnDcoWindowsAmd64, downloadTapWindowsAmd64)
         val awgMsi = downloadAmneziaWgWindowsAmd64.flatMap { it.outputFile }
         val ovpnMsi = downloadOpenVpnWindowsAmd64.flatMap { it.outputFile }
         val dcoZip = downloadOvpnDcoWindowsAmd64.flatMap { it.outputFile }
-        inputs.files(awgMsi, ovpnMsi, dcoZip)
+        val tapZip = downloadTapWindowsAmd64.flatMap { it.outputFile }
+        inputs.files(awgMsi, ovpnMsi, dcoZip, tapZip)
         outputs.dir(windowsVpnTools)
         val tmp = temporaryDir
         doLast {
@@ -437,7 +445,16 @@ if (currentBuildOs.isWindows) {
                     zip.getInputStream(entry).use { input -> out.outputStream().use { input.copyTo(it) } }
                 }
             }
-            listOf("awg/amneziawg.exe", "awg/wintun.dll", "ovpn/openvpn.exe", "ovpn/dco/win10/ovpn-dco.inf", "ovpn/dco/win11/ovpn-dco.inf")
+            ZipFile(tapZip.get().asFile).use { zip ->
+                listOf("OemVista.inf", "tap0901.cat", "tap0901.sys").forEach { name ->
+                    val entry = zip.getEntry("dist.win10/amd64/$name") ?: error("Нет $name в tap-windows6")
+                    val out = root.resolve("ovpn/tap/$name")
+                    out.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input -> out.outputStream().use { input.copyTo(it) } }
+                }
+            }
+            listOf("awg/amneziawg.exe", "awg/wintun.dll", "ovpn/openvpn.exe", "ovpn/dco/win10/ovpn-dco.inf", "ovpn/dco/win11/ovpn-dco.inf",
+                "ovpn/tap/OemVista.inf")
                 .forEach { check(root.resolve(it).isFile) { "Нет $it после распаковки" } }
         }
     }

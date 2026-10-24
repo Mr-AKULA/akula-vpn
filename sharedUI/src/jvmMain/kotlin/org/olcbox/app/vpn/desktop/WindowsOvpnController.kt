@@ -41,8 +41,7 @@ class WindowsOvpnController(
 
     suspend fun up(configText: String) = withContext(Dispatchers.IO) {
         down()
-        ensureDriver()
-        ensureAdapter()
+        val tap = prepareAdapter()
         Files.createDirectories(workDir)
         val config = workDir.resolve("akula.ovpn")
         Files.writeString(config, configText)
@@ -55,11 +54,12 @@ class WindowsOvpnController(
         val ready = CompletableDeferred<Unit>()
         stopping = false
         val p = ProcessBuilder(
-            exe.toString(),
-            "--config", config.toString(),
-            "--management", "127.0.0.1", managementPort.toString(), passwordFile.toString(),
-            "--dev-node", ADAPTER,
-            "--verb", "3"
+            listOf(
+                exe.toString(),
+                "--config", config.toString(),
+                "--management", "127.0.0.1", managementPort.toString(), passwordFile.toString()
+            ) + (if (tap) listOf("--disable-dco", "--dev-node", TAP_ADAPTER) else listOf("--dev-node", ADAPTER)) +
+                listOf("--verb", "3")
         ).directory(exe.parent.toFile()).redirectErrorStream(true).start()
         process = p
 
@@ -113,26 +113,63 @@ class WindowsOvpnController(
         log("OpenVPN: отключено")
     }
 
-    /** Драйвер ovpn-dco — один раз в хранилище драйверов Windows; сборка под Windows 10 и 11 своя. */
-    private fun ensureDriver() {
-        val installed = command("pnputil.exe", "/enum-drivers").second
-        if (installed.contains("ovpn-dco.inf", ignoreCase = true)) return
-        val folder = if (windowsBuild() >= 22000) "win11" else "win10"
-        val inf = WindowsVpnTools.path("ovpn/dco/$folder/ovpn-dco.inf")
-        log("OpenVPN: ставлю драйвер (один раз)")
-        val (code, out) = command("pnputil.exe", "/add-driver", inf.toString(), "/install")
-        // 0 — поставлен, 259 — уже был; 3010 — нужна перезагрузка (для нового адаптера обычно не нужна)
-        if (code !in setOf(0, 259, 3010)) error("Драйвер OpenVPN не установился (код $code): ${out.trim().take(200)}")
+    /**
+     * Адаптер для туннеля; true — запасной tap-windows6. Основной — ovpn-dco. У части ноутбуков Windows не создаёт
+     * его адаптер («tap_create_adapter», 24.10.2026, причину с ноутбука не узнать): тогда наш пакет драйвера ставится
+     * заново поверх (в хранилище мог лежать чужой ovpn-dco от другого VPN), а не помогло — классический TAP.
+     * Выбор запоминается до закрытия программы, чтобы не ставить драйвер при каждом подключении.
+     */
+    private fun prepareAdapter(): Boolean {
+        if (!useTap) {
+            val first = runCatching { ensureDriver(force = false); ensureAdapter(DCO_HWID, ADAPTER) }
+            if (first.isSuccess) return false
+            log("OpenVPN: адаптер ovpn-dco не создан — ставлю драйвер заново. ${first.exceptionOrNull()?.message}")
+            val second = runCatching { ensureDriver(force = true); ensureAdapter(DCO_HWID, ADAPTER) }
+            if (second.isSuccess) return false
+            log("OpenVPN: ovpn-dco не работает на этом ПК — перехожу на драйвер TAP. ${second.exceptionOrNull()?.message}")
+            useTap = true
+        }
+        ensureTapDriver()
+        ensureAdapter(TAP_HWID, TAP_ADAPTER)
+        return true
     }
 
-    /** Адаптер ovpn-dco создаётся один раз и остаётся (как у OpenVPN); выключен, пока туннеля нет. */
-    private fun ensureAdapter() {
-        val tapctl = WindowsVpnTools.path("ovpn/tapctl.exe").toString()
-        if (command(tapctl, "list", "--hwid", "ovpn-dco").second.contains(ADAPTER)) return
-        log("OpenVPN: создаю адаптер «$ADAPTER»")
-        val (code, out) = command(tapctl, "create", "--hwid", "ovpn-dco", "--name", ADAPTER)
-        if (code != 0) error("Адаптер OpenVPN не создан (код $code): ${out.trim().take(200)}")
+    /** Драйвер ovpn-dco — один раз в хранилище драйверов Windows; сборка под Windows 10 и 11 своя. */
+    private fun ensureDriver(force: Boolean) {
+        if (!force && driverInStore("ovpn-dco.inf")) return
+        val folder = if (windowsBuild() >= 22000) "win11" else "win10"
+        addDriver(WindowsVpnTools.path("ovpn/dco/$folder/ovpn-dco.inf"))
     }
+
+    /** tap-windows6 (root\tap0901): если такой уже стоит (OpenVPN GUI и др.) — подойдёт и он. */
+    private fun ensureTapDriver() {
+        if (driverInStore("TAP-Windows Provider V9")) return
+        addDriver(WindowsVpnTools.path("ovpn/tap/OemVista.inf"))
+    }
+
+    private fun driverInStore(name: String) = command("pnputil.exe", "/enum-drivers").second.contains(name, ignoreCase = true)
+
+    private fun addDriver(inf: Path) {
+        log("OpenVPN: ставлю драйвер ${inf.fileName}")
+        val (code, out) = command("pnputil.exe", "/add-driver", inf.toString(), "/install")
+        // 0 — поставлен, 259 — уже был; 3010 — нужна перезагрузка (для нового адаптера обычно не нужна)
+        if (code !in setOf(0, 259, 3010)) error("Драйвер OpenVPN не установился (код $code): ${oneLine(out)}")
+    }
+
+    /** Адаптер создаётся один раз и остаётся (как у OpenVPN); выключен, пока туннеля нет. */
+    private fun ensureAdapter(hwid: String, name: String) {
+        val tapctl = WindowsVpnTools.path("ovpn/tapctl.exe").toString()
+        if (command(tapctl, "list", "--hwid", hwid).second.contains(name)) return
+        log("OpenVPN: создаю адаптер «$name»")
+        val (code, out) = command(tapctl, "create", "--hwid", hwid, "--name", name)
+        if (code != 0) {
+            log("OpenVPN: tapctl create ($hwid) — код $code: ${oneLine(out)}")
+            error("Адаптер OpenVPN не создан (код $code): ${oneLine(out).take(200)}")
+        }
+    }
+
+    /** Вывод tapctl/pnputil — строки через « / »: в окне программы видна вся причина, а не первая строка. */
+    private fun oneLine(out: String) = out.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString(" / ")
 
     private fun windowsBuild(): Int = command(
         "reg.exe", "query", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "/v", "CurrentBuildNumber"
@@ -153,6 +190,12 @@ class WindowsOvpnController(
     companion object {
         private const val CONNECT_TIMEOUT_MS = 40_000L
         const val ADAPTER = "AKULA OpenVPN"
+        const val TAP_ADAPTER = "AKULA OpenVPN TAP"
+        private const val DCO_HWID = "ovpn-dco"
+        private const val TAP_HWID = "root\\tap0901"
+
+        /** Для проверки запасного пути на виртуалке: AKULA_OVPN_TAP=1 — сразу TAP. */
+        @Volatile private var useTap = System.getenv("AKULA_OVPN_TAP") == "1"
         private val IMPORTANT = listOf(
             "Initialization Sequence Completed", "AUTH_FAILED", "ERROR", "error", "fatal", "DCO", "dco",
             "TLS Error", "Peer Connection Initiated", "Restart pause", "SIGTERM", "Exiting", "WARNING"
