@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.use
@@ -37,7 +39,12 @@ class SubscriptionGroupsSnapshot {
         metadata = LocationMetadata(subscription = SubscriptionMetadata(name = subscription))
     )
 
-    private fun render(name: String, prefs: Map<String, SubscriptionPrefs>, width: Int = 420) {
+    private fun render(
+        name: String,
+        prefs: Map<String, SubscriptionPrefs>,
+        width: Int = 420,
+        clickAt: Offset? = null // нажать (в пикселях снимка) и снять ещё раз — меню «⋮», окно названия
+    ) {
         val a = "https://vpn.example/api/sub/a"
         val b = "https://vpn.example/api/sub/b"
         val locations = listOf(
@@ -57,7 +64,15 @@ class SubscriptionGroupsSnapshot {
                     )
                 }
             }
-        }.use { it.render() }
+        }.use { scene ->
+            scene.render()
+            if (clickAt != null) {
+                scene.sendPointerEvent(PointerEventType.Press, clickAt)
+                scene.sendPointerEvent(PointerEventType.Release, clickAt)
+                scene.render(500_000_000)
+            }
+            scene.render(1_000_000_000)
+        }
         val out = File("build/ui-snapshots/$name.png").apply { parentFile.mkdirs() }
         out.writeBytes(image.encodeToData(EncodedImageFormat.PNG)!!.bytes)
         assertTrue(out.length() > 0)
@@ -68,6 +83,14 @@ class SubscriptionGroupsSnapshot {
 
     @Test
     fun serverNamesNarrowPhone() = render("3-phone-360dp", emptyMap(), width = 540)
+
+    @Test
+    fun locationMenu() = render("4-menu", emptyMap(), width = 540, clickAt = Offset(407f, 201f))
+
+    @Test
+    fun renameDialog() = render("5-rename", mapOf(
+        "https://vpn.example/api/sub/a" to SubscriptionPrefs(customName = "Мой ноутбук")
+    ), width = 540, clickAt = Offset(264f, 48f))
 
     @Test
     fun customNameCollapsedAndHidden() = render("2-custom-collapsed", mapOf(
