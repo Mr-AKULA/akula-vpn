@@ -767,6 +767,74 @@ class LocationsRepositoryImplTest {
         assertEquals("second", repository.getActiveLocationId())
     }
 
+    // Свои настройки подписки (25.10.2026): название, свёрнутость, убранные подключения
+    @Test
+    fun subscriptionPrefsSurviveServerRefreshAndUpdateRestoresHidden() = runTest {
+        val url = "https://example.test/sub"
+        val key = "a".repeat(64)
+        val first = LocationEntry.from("first", LocationConfig("First", "room-first", key), subscriptionUrl = url)
+        val second = LocationEntry.from("second", LocationConfig("Second", "room-second", key), subscriptionUrl = url)
+        val source = FakeLocationsDataSource(stored = LocationBundleV4(
+            activeLocationId = "first", locations = listOf(first, second)
+        ))
+        val repository = LocationsRepositoryImpl(source, HttpClient(MockEngine {
+            respond("olcrtc://wbstream?vp8channel@room-first#$key\nolcrtc://wbstream?vp8channel@room-second#$key")
+        }))
+
+        repository.setSubscriptionName(" $url ", "  Мой ноут  ")
+        repository.setSubscriptionCollapsed(url, true)
+        assertEquals(false, repository.hideLocation("first"), "выбранное убрать нельзя")
+        assertEquals(true, repository.hideLocation("second"))
+        assertEquals(listOf("first"), repository.getAllLocations().map { it.storageId })
+
+        // Обновление с сервера (по расписанию) — ничего из своего не теряется
+        assertEquals(1, repository.refreshSubscription(url))
+        val prefs = repository.getBundle().subscriptionPrefs[url]
+        assertEquals("Мой ноут", prefs?.customName)
+        assertEquals(true, prefs?.collapsed)
+        assertEquals(listOf("second"), prefs?.hiddenIds)
+        assertEquals(listOf("first"), repository.getAllLocations().map { it.storageId })
+
+        // «Обновить» вручную — убранные возвращаются, название остаётся
+        repository.showHiddenLocations(url)
+        assertEquals(listOf("first", "second"), repository.getAllLocations().map { it.storageId })
+        assertEquals("Мой ноут", repository.getBundle().subscriptionPrefs[url]?.customName)
+
+        // Пустое название — снова с сервера; удалили подписку — её настройки не остаются
+        repository.setSubscriptionName(url, " ")
+        assertNull(repository.getBundle().subscriptionPrefs[url]?.customName)
+        repository.deleteSubscription(url)
+        assertTrue(repository.getBundle().subscriptionPrefs.isEmpty())
+    }
+
+    @Test
+    fun hideLocationIgnoresOwnConnections() = runTest {
+        val key = "a".repeat(64)
+        val own = LocationEntry.from("own", LocationConfig("Own", "room-own", key))
+        val sub = LocationEntry.from("sub", LocationConfig("Sub", "room-sub", key), subscriptionUrl = "https://example.test/s")
+        val repository = LocationsRepositoryImpl(FakeLocationsDataSource(stored = LocationBundleV4(
+            activeLocationId = "sub", locations = listOf(own, sub)
+        )))
+        assertEquals(false, repository.hideLocation("own"), "своё подключение удаляется в настройках, не убирается")
+        assertEquals(listOf("own", "sub"), repository.getAllLocations().map { it.storageId })
+    }
+
+    // Название подписки с панели AKULA: metadata.subscription.name у каждого подключения (vpn-panel, 25.10.2026)
+    @Test
+    fun panelSubscriptionNameIsReadFromLocationMetadata() = runTest {
+        val url = "https://example.test/api/sub/token"
+        val repository = LocationsRepositoryImpl(FakeLocationsDataSource(), HttpClient(MockEngine {
+            respond(
+                """{"version": 5, "locations": [{"storage_id": "akula_panel_x_awg", "name": "AKULA · Ноут",
+                   "awg_config": "[Interface]\nPrivateKey = a\nAddress = 10.8.0.2/32\n[Peer]\nPublicKey = b\nEndpoint = 1.2.3.4:443\nAllowedIPs = 0.0.0.0/0",
+                   "metadata": {"subscription": {"name": "Ноут · Сервер AKULA"}}}]}""",
+                headers = headersOf(HttpHeaders.ContentType, "application/json")
+            )
+        }))
+        assertIs<LocationImportResult.Success>(repository.importTextDetailed(url))
+        assertEquals("Ноут · Сервер AKULA", repository.getAllLocations().single().metadata?.subscription?.name)
+    }
+
     @Test
     fun slowRefreshDoesNotBlockSelectionOrRestoreDeletedSubscription() = runTest {
         val url = "https://example.test/sub"

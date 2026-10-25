@@ -3,6 +3,20 @@ package org.olcbox.app.ui.features.home.components
 import org.olcbox.app.ui.i18n.tr
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import org.olcbox.app.data.model.SubscriptionPrefs
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,7 +67,11 @@ fun LocationSelectorScreen(
     selectedLocationId: String?,
     pingsState: PingsState,
     onLocationSelected: (String) -> Unit,
-    onLocationSettingsClick: (String) -> Unit
+    onLocationSettingsClick: (String) -> Unit,
+    subscriptionPrefs: Map<String, SubscriptionPrefs> = emptyMap(),
+    onToggleSubscriptionCollapsed: (subscriptionUrl: String) -> Unit = {},
+    onRenameSubscription: (subscriptionUrl: String, name: String?) -> Unit = { _, _ -> },
+    onHideLocation: (storageId: String) -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         val subscriptionLocations = locations.filter { !it.subscriptionUrl.isNullOrBlank() }
@@ -71,26 +89,100 @@ fun LocationSelectorScreen(
             return@Column
         }
 
+        // Переименование подписки: адрес подписки, для которой открыто окно
+        var renameUrl by remember { mutableStateOf<String?>(null) }
+        var renameText by remember { mutableStateOf("") }
+        renameUrl?.let { url ->
+            AlertDialog(
+                onDismissRequest = { renameUrl = null },
+                title = { Text(tr("Название подписки", "Subscription name")) },
+                text = {
+                    Column {
+                        OutlinedTextField(
+                            value = renameText,
+                            onValueChange = { renameText = it.take(60) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = tr(
+                                "Только на этом устройстве. Пустое — название с сервера.",
+                                "This device only. Empty — the name from the server."
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { onRenameSubscription(url, renameText); renameUrl = null }) {
+                        Text(tr("Сохранить", "Save"))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { renameUrl = null }) { Text(tr("Отмена", "Cancel")) }
+                }
+            )
+        }
+
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             subscriptionGroups.forEach { group ->
+                val groupUrl = group.firstOrNull()?.subscriptionUrl?.trim().orEmpty()
+                val prefs = subscriptionPrefs[groupUrl]
+                val collapsed = prefs?.collapsed == true
                 Column(
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SubscriptionGroupHeader(
-                            locations = group,
-                            modifier = Modifier.weight(1f)
-                        )
+                    // Название — своей строкой (рядом с кнопками на телефоне оно не помещалось), кнопки — под ним
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Нажатие на название или стрелку — свернуть/развернуть группу (свёрнутая — только название)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(enabled = groupUrl.isNotBlank()) { onToggleSubscriptionCollapsed(groupUrl) },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (collapsed) Icons.Outlined.ChevronRight else Icons.Outlined.ExpandMore,
+                                contentDescription = if (collapsed) tr("Развернуть", "Expand") else tr("Свернуть", "Collapse"),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            SubscriptionGroupHeader(
+                                locations = group,
+                                customName = prefs?.customName,
+                                collapsedCount = group.size.takeIf { collapsed },
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (groupUrl.isNotBlank()) {
+                                IconButton(
+                                    onClick = {
+                                        renameText = prefs?.customName.orEmpty()
+                                        renameUrl = groupUrl
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Edit,
+                                        contentDescription = tr("Переименовать", "Rename"),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
 
                         val groupIds = group.map { it.storageId }
                         val isGroupRefreshing = pingsState is PingsState.Loading &&
                                 pingsState.pendingLocationIds.any { it in groupIds }
 
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!collapsed) Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             RefreshButton(
                                 isRefreshing = isGroupRefreshing,
                                 onClick = { onRefreshClick(groupIds) },
@@ -117,24 +209,40 @@ fun LocationSelectorScreen(
                         }
                     }
 
-                    val subscription = group.firstOrNull()?.metadata?.subscription
-                    TrafficQuotaIndicator(
-                        used = subscription?.used,
-                        available = subscription?.available,
-                        modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp)
-                    )
+                    if (!collapsed) {
+                        val subscription = group.firstOrNull()?.metadata?.subscription
+                        TrafficQuotaIndicator(
+                            used = subscription?.used,
+                            available = subscription?.available,
+                            modifier = Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp)
+                        )
 
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        group.forEach { location ->
-                            LocationSelectorRow(
-                                location = location,
-                                selectedLocationId = selectedLocationId,
-                                pingsState = pingsState,
-                                onLocationSelected = onLocationSelected,
-                                onLocationSettingsClick = onLocationSettingsClick
+                        val hiddenCount = prefs?.hiddenIds?.size ?: 0
+                        if (hiddenCount > 0) {
+                            Text(
+                                text = tr(
+                                    "Убрано из списка: $hiddenCount. Вернуть — «Обновить»",
+                                    "Removed from list: $hiddenCount. Restore — \"Update\""
+                                ),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
                             )
+                        }
+
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            group.forEach { location ->
+                                LocationSelectorRow(
+                                    location = location,
+                                    selectedLocationId = selectedLocationId,
+                                    pingsState = pingsState,
+                                    onLocationSelected = onLocationSelected,
+                                    onLocationSettingsClick = onLocationSettingsClick,
+                                    onHideClick = { onHideLocation(location.storageId) }
+                                )
+                            }
                         }
                     }
                 }
@@ -353,10 +461,13 @@ private fun LocationGroupHeader(
 @Composable
 private fun SubscriptionGroupHeader(
     locations: List<LocationItem>,
+    customName: String?,
+    collapsedCount: Int?,
     modifier: Modifier = Modifier
 ) {
     val first = locations.firstOrNull()
-    val title = first?.subscriptionTitle().orEmpty().ifBlank { tr("Подписки", "Subscriptions") }
+    val title = customName?.takeIf { it.isNotBlank() }
+        ?: first?.subscriptionTitle().orEmpty().ifBlank { tr("Подписки", "Subscriptions") }
     val description = first?.subscriptionDescription()
     val details = first?.subscriptionDetails()
 
@@ -369,6 +480,16 @@ private fun SubscriptionGroupHeader(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+
+        if (collapsedCount != null) {
+            Text(
+                text = tr("Подключений: $collapsedCount", "Connections: $collapsedCount"),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1
+            )
+            return@Column
+        }
 
         if (!description.isNullOrBlank()) {
             Text(
@@ -397,7 +518,8 @@ private fun LocationSelectorRow(
     selectedLocationId: String?,
     pingsState: PingsState,
     onLocationSelected: (String) -> Unit,
-    onLocationSettingsClick: (String) -> Unit
+    onLocationSettingsClick: (String) -> Unit,
+    onHideClick: (() -> Unit)? = null
 ) {
     val pingMs = pingsState.pingFor(location.storageId)
     val isLoading = pingsState.isChecking(location.storageId)
@@ -412,6 +534,7 @@ private fun LocationSelectorRow(
         onSettingsClick = {
             onLocationSettingsClick(location.storageId)
         },
+        onHideClick = onHideClick,
         onClick = {
             onLocationSelected(location.storageId)
         }

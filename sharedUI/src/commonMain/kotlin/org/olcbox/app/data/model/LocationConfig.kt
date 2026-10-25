@@ -715,12 +715,30 @@ private fun String?.cleanMetadataValue(): String? {
     return this?.trim()?.takeIf { it.isNotEmpty() }
 }
 
+/**
+ * Настройки подписки на этом устройстве (Павел 25.10.2026): своё название, свёрнута ли группа, убранные подключения.
+ * Обновление подписки с сервера их не трогает; «Обновить» вручную возвращает убранные подключения.
+ */
+@Serializable
+data class SubscriptionPrefs(
+    @SerialName("custom_name")
+    val customName: String? = null,
+    val collapsed: Boolean = false,
+    @SerialName("hidden_ids")
+    val hiddenIds: List<String> = emptyList()
+) {
+    fun isEmpty(): Boolean = customName.isNullOrBlank() && !collapsed && hiddenIds.isEmpty()
+}
+
 @Serializable
 data class LocationBundleV4(
     val version: Int = 5,
     @SerialName("active_location_id")
     val activeLocationId: String? = null,
-    val locations: List<LocationEntry> = emptyList()
+    val locations: List<LocationEntry> = emptyList(),
+    /** Ключ — адрес подписки (без пробелов по краям). */
+    @SerialName("subscription_prefs")
+    val subscriptionPrefs: Map<String, SubscriptionPrefs> = emptyMap()
 ) {
     fun normalized(): LocationBundleV4 {
         val normalizedLocations = locations
@@ -732,12 +750,24 @@ data class LocationBundleV4(
             ?.takeIf { id -> normalizedLocations.any { it.storageId == id } }
             ?: normalizedLocations.firstOrNull()?.storageId
 
+        // Настройки удалённых подписок и убранные подключения, которых больше нет, не копим
+        val ids = normalizedLocations.mapTo(mutableSetOf()) { it.storageId }
+        val urls = normalizedLocations.mapNotNullTo(mutableSetOf()) { it.subscriptionUrl?.trim()?.takeIf(String::isNotBlank) }
+        val prefs = subscriptionPrefs
+            .filterKeys { it in urls }
+            .mapValues { (_, p) -> p.copy(customName = p.customName?.trim(), hiddenIds = p.hiddenIds.filter { it in ids }.distinct()) }
+            .filterValues { !it.isEmpty() }
+
         return copy(
             version = CURRENT_VERSION,
             activeLocationId = active,
-            locations = normalizedLocations
+            locations = normalizedLocations,
+            subscriptionPrefs = prefs
         )
     }
+
+    /** Подключения, которые пользователь убрал из списка (на всех подписках). */
+    fun hiddenIds(): Set<String> = subscriptionPrefs.values.flatMapTo(mutableSetOf()) { it.hiddenIds }
 
     companion object {
         const val CURRENT_VERSION = 5

@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationMetadata
+import org.olcbox.app.data.model.SubscriptionPrefs
 import org.olcbox.app.data.repository.LocationsRepository
 
 data class LocationItem(
@@ -59,6 +60,10 @@ class LocationViewModel(
         private set
 
     var pingsState by mutableStateOf<PingsState>(PingsState.Idle)
+        private set
+
+    /** Своё название, свёрнутость и убранные подключения — по адресу подписки (только на этом устройстве). */
+    var subscriptionPrefs by mutableStateOf<Map<String, SubscriptionPrefs>>(emptyMap())
         private set
 
     private val activePingJobs = mutableMapOf<String, Job>()
@@ -113,7 +118,8 @@ class LocationViewModel(
         loadLocationsJob?.cancel()
         loadLocationsJob = viewModelScope.launch {
             val bundle = locationsRepository.getBundle()
-            val savedConfigs = bundle.locations
+            val hidden = bundle.hiddenIds()
+            val savedConfigs = bundle.locations.filterNot { it.storageId in hidden }
             val currentSelectedId = bundle.activeLocationId
 
             val nextLocations = savedConfigs.map { entry ->
@@ -131,6 +137,7 @@ class LocationViewModel(
 
             locations.clear()
             locations.addAll(nextLocations)
+            subscriptionPrefs = bundle.subscriptionPrefs
 
             val nextSelectedId = if (
                 nextLocations.isNotEmpty() &&
@@ -154,6 +161,30 @@ class LocationViewModel(
 
             selectedLocationId = nextSelectedId
             onComplete()
+        }
+    }
+
+    fun renameSubscription(subscriptionUrl: String, name: String?) {
+        viewModelScope.launch {
+            locationsRepository.setSubscriptionName(subscriptionUrl, name)
+            loadLocations()
+        }
+    }
+
+    fun toggleSubscriptionCollapsed(subscriptionUrl: String) {
+        val collapsed = subscriptionPrefs[subscriptionUrl.trim()]?.collapsed == true
+        viewModelScope.launch {
+            locationsRepository.setSubscriptionCollapsed(subscriptionUrl, !collapsed)
+            loadLocations()
+        }
+    }
+
+    /** onResult(false) — подключение сейчас выбрано: сначала выбрать другое. */
+    fun hideLocation(id: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val hidden = locationsRepository.hideLocation(id)
+            if (hidden) loadLocations()
+            onResult(hidden)
         }
     }
 

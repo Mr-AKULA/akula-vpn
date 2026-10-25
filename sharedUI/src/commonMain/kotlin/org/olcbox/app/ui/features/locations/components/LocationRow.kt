@@ -29,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +38,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,6 +67,7 @@ fun LocationRow(
     isError: Boolean = false,
     settingsEnabled: Boolean = true,
     onSettingsClick: () -> Unit = {},
+    onHideClick: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     val bgColor by animateColorAsState(
@@ -176,15 +182,31 @@ fun LocationRow(
         Spacer(modifier = Modifier.width(12.dp))
 
         if (settingsEnabled) {
-            IconButton(
-                onClick = onSettingsClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "Settings",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            // У подключения подписки «⋮» — меню: настройки и «Убрать из списка» (Павел 25.10.2026)
+            var menuOpen by remember { mutableStateOf(false) }
+            Box {
+                IconButton(
+                    onClick = { if (onHideClick != null) menuOpen = true else onSettingsClick() },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (onHideClick != null) {
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(
+                            text = { Text(tr("Настройки", "Settings")) },
+                            onClick = { menuOpen = false; onSettingsClick() }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(tr("Убрать из списка", "Remove from list")) },
+                            onClick = { menuOpen = false; onHideClick() }
+                        )
+                    }
+                }
             }
         }
 

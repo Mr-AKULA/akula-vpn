@@ -35,6 +35,13 @@ interface LocationsRepository {
     suspend fun nextSubscriptionRefreshAtEpochMs(): Long?
     suspend fun setSubscriptionUpdateInterval(subscriptionUrl: String, intervalMs: Long?)
     suspend fun deleteSubscription(subscriptionUrl: String): Int
+    /** Своё название подписки на этом устройстве; пустое — снова название с сервера. */
+    suspend fun setSubscriptionName(subscriptionUrl: String, name: String?)
+    suspend fun setSubscriptionCollapsed(subscriptionUrl: String, collapsed: Boolean)
+    /** Убрать подключение подписки из списка на этом устройстве. false — оно сейчас выбрано, сначала выбрать другое. */
+    suspend fun hideLocation(storageId: String): Boolean
+    /** Вернуть все убранные подключения подписки (кнопка «Обновить»). */
+    suspend fun showHiddenLocations(subscriptionUrl: String)
     suspend fun saveLocation(storageId: String, location: LocationConfig)
     suspend fun loadLocation(storageId: String): LocationConfig?
     suspend fun deleteLocation(storageId: String)

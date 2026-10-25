@@ -370,6 +370,8 @@ class HomeScreenViewModel(
     ) {
         viewModelScope.launch {
             try {
+                // «Обновить» вручную — подписка как с сервера: убранные подключения возвращаются (своё название — нет)
+                locationsRepository.showHiddenLocations(subscriptionUrl)
                 val updatedCount = locationsRepository.refreshSubscription(
                     subscriptionUrl = subscriptionUrl,
                     subscriptionProxy = vpnManager.subscriptionFetchProxy()

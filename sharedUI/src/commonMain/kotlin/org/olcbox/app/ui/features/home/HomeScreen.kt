@@ -234,6 +234,22 @@ fun HomeScreen(
                 onLocationSettingsClick = { id ->
                     onOpenLocationSettings(id)
                 },
+                subscriptionPrefs = locationViewModel.subscriptionPrefs,
+                onToggleSubscriptionCollapsed = locationViewModel::toggleSubscriptionCollapsed,
+                onRenameSubscription = locationViewModel::renameSubscription,
+                onHideLocation = { id ->
+                    locationViewModel.hideLocation(id) { hidden ->
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                if (hidden) {
+                                    tr("Убрано из списка. Вернуть — «Обновить» у подписки", "Removed. Restore with \"Update\"")
+                                } else {
+                                    tr("Это подключение выбрано — сначала выберите другое", "This connection is selected — pick another first")
+                                }
+                            )
+                        }
+                    }
+                },
                 onAddLocationClick = {
                     onAddLocation()
                 }

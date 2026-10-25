@@ -30,6 +30,7 @@ import org.olcbox.app.data.model.LocationConfig
 import org.olcbox.app.data.model.LocationEntry
 import org.olcbox.app.data.model.LocationMetadata
 import org.olcbox.app.data.model.SubscriptionMetadata
+import org.olcbox.app.data.model.SubscriptionPrefs
 import org.olcbox.app.data.model.parseSubscriptionRefreshIntervalMs
 import org.olcbox.app.data.repository.LocationImportFailureKind
 import org.olcbox.app.data.repository.LocationImportResult
@@ -385,6 +386,40 @@ class LocationsRepositoryImpl(
         }
     }
 
+    override suspend fun setSubscriptionName(subscriptionUrl: String, name: String?) =
+        updateSubscriptionPrefs(subscriptionUrl) { it.copy(customName = name?.trim()?.takeIf(String::isNotBlank)) }
+
+    override suspend fun setSubscriptionCollapsed(subscriptionUrl: String, collapsed: Boolean) =
+        updateSubscriptionPrefs(subscriptionUrl) { it.copy(collapsed = collapsed) }
+
+    override suspend fun showHiddenLocations(subscriptionUrl: String) =
+        updateSubscriptionPrefs(subscriptionUrl) { it.copy(hiddenIds = emptyList()) }
+
+    override suspend fun hideLocation(storageId: String): Boolean {
+        return mutationMutex.withLock {
+            val bundle = getBundleUnlocked()
+            if (bundle.activeLocationId == storageId) return@withLock false
+            val url = bundle.locations.firstOrNull { it.storageId == storageId }
+                ?.subscriptionUrl?.trim()?.takeIf { it.isNotBlank() }
+                ?: return@withLock false // убираются только подключения подписок; свои — удаляются в настройках
+            val prefs = bundle.subscriptionPrefs[url] ?: SubscriptionPrefs()
+            saveBundleUnlocked(bundle.copy(
+                subscriptionPrefs = bundle.subscriptionPrefs + (url to prefs.copy(hiddenIds = prefs.hiddenIds + storageId))
+            ))
+            true
+        }
+    }
+
+    private suspend fun updateSubscriptionPrefs(subscriptionUrl: String, change: (SubscriptionPrefs) -> SubscriptionPrefs) {
+        val url = subscriptionUrl.trim()
+        if (url.isBlank()) return
+        mutationMutex.withLock {
+            val bundle = getBundleUnlocked()
+            val updated = change(bundle.subscriptionPrefs[url] ?: SubscriptionPrefs())
+            saveBundleUnlocked(bundle.copy(subscriptionPrefs = bundle.subscriptionPrefs + (url to updated)))
+        }
+    }
+
     override suspend fun saveLocation(storageId: String, location: LocationConfig) {
         mutationMutex.withLock {
             val normalizedId = storageId.ifBlank { location.storageSlug() }
@@ -428,7 +463,10 @@ class LocationsRepositoryImpl(
 
     override suspend fun getAllLocations(): List<LocationEntry> {
         return mutationMutex.withLock {
-            getBundleUnlocked().locations
+            // Убранные пользователем подключения не берёт и автопереключение
+            val bundle = getBundleUnlocked()
+            val hidden = bundle.hiddenIds()
+            bundle.locations.filterNot { it.storageId in hidden }
         }
     }
 
