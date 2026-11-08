@@ -41,16 +41,26 @@ class AppReportCollectorTest {
         assertFalse(json.contains("SECRET"))
         assertFalse(json.contains("private.example"))
         assertTrue(json.contains("IllegalStateException"))
+        AppDiagnostics.record("vpn.connection", diagnostic = VpnDiagnostic.timeout(VpnProtocol.AMNEZIA_WG, 15020, 1))
+        AppDiagnostics.record("vpn.connection", diagnostic = VpnDiagnostic.timeout(VpnProtocol.AMNEZIA_WG, 15100, 1))
+        AppDiagnostics.record("vpn.connection", diagnostic = VpnDiagnostic(VpnProtocol.OPENVPN, VpnStage.AUTHENTICATE, VpnReason.AUTH_REJECTED))
+        AppDiagnostics.record("vpn.connection", kotlinx.coroutines.CancellationException("SECRET"))
+        assertEquals(3, queue.listFiles()!!.size, "Group duplicates but preserve distinct reasons and ignore cancellation")
+        val timeout = queue.listFiles()!!.map { it.readText() }.single { it.contains("handshake_timeout") }
+        assertTrue(timeout.contains("\"elapsed_ms\":15020"))
+        assertTrue(timeout.contains("\"protocol\":\"amnezia_wg\""))
+        assertTrue(timeout.contains("\"frames\":[]"), "A timeout must not invent an exception stack")
+        assertTrue(timeout.contains("diagnostic.event"))
         val flush = AppReportCollector.javaClass.getDeclaredMethod("flush").apply { isAccessible = true }
         flush.invoke(AppReportCollector)
-        assertEquals(1, queue.listFiles()!!.size, "A failed upload must remain on disk")
+        assertEquals(3, queue.listFiles()!!.size, "A failed upload must remain on disk")
         Thread.getDefaultUncaughtExceptionHandler()!!.uncaughtException(Thread.currentThread(), error)
         assertTrue(chained, "Preserve the original crash handler")
-        assertEquals(2, queue.listFiles()!!.size)
+        assertEquals(4, queue.listFiles()!!.size)
         assertTrue(queue.listFiles()!!.any { it.readText().contains("\"kind\":\"crash\"") })
         response = 202
         flush.invoke(AppReportCollector)
         assertEquals(0, queue.listFiles()!!.size, "Only acknowledged reports leave the queue")
-        assertEquals(3, delivered.size)
+        assertEquals(5, delivered.size)
     }
 }

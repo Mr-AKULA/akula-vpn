@@ -34,7 +34,7 @@ object AppReportCollector {
             platform = platformName
             osVersion = os.filter { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in ".-_ " }.take(64).ifEmpty { "unknown" }
         }
-        AppDiagnostics.receiver = { operation, error -> record("error", operation, error) }
+        AppDiagnostics.receiver = { operation, error, diagnostic -> record("error", operation, error, diagnostic = diagnostic) }
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             try { record("crash", "uncaught", error) } catch (_: Throwable) { }
@@ -54,18 +54,18 @@ object AppReportCollector {
         } catch (_: Throwable) { }
     }
 
-    private fun record(kind: String, operation: String, error: Throwable?, occurredAt: Long = System.currentTimeMillis()) {
+    private fun record(kind: String, operation: String, error: Throwable?, occurredAt: Long = System.currentTimeMillis(), diagnostic: VpnDiagnostic? = null) {
         synchronized(lock) {
             val root = directory ?: return
-            val source = error ?: Throwable()
+            val source = error
             val frames = generateSequence(source) { it.cause }.take(5).flatMap { cause ->
                 cause.stackTrace.asSequence().take(24).map { frame ->
                     "${symbol(frame.className)}.${symbol(frame.methodName)}:${frame.lineNumber.coerceIn(-1, 999999)}"
                 }
             }.take(48).toList()
-            val type = symbol(source.javaClass.name)
+            val type = source?.let { symbol(it.javaClass.name) } ?: "diagnostic.event"
             val operationName = operation.filter { it.isLetterOrDigit() || it in "._-" }.take(64)
-            val signature = "$kind:$operationName:$type:${frames.take(4)}"
+            val signature = "$kind:$operationName:$type:${frames.take(4)}:${diagnostic?.protocol}:${diagnostic?.stage}:${diagnostic?.reason}"
             val now = System.currentTimeMillis()
             if (kind != "crash" && now - (recent[signature] ?: 0L) < 300000) return
             if (recent.size >= 128) recent.clear()
@@ -82,9 +82,17 @@ object AppReportCollector {
                 put("os_version", osVersion)
                 put("occurred_at_ms", occurredAt)
                 put("exception_type", type)
+                if (diagnostic != null) putJsonObject("context") {
+                    put("protocol", diagnostic.protocol.name.lowercase())
+                    put("stage", diagnostic.stage.name.lowercase())
+                    put("reason", diagnostic.reason.name.lowercase())
+                    diagnostic.elapsedMs?.let { put("elapsed_ms", it.coerceIn(0, 86_400_000)) }
+                    diagnostic.attempt?.let { put("attempt", it.coerceIn(1, 10000)) }
+                    diagnostic.exitCode?.let { put("exit_code", it) }
+                }
                 putJsonArray("frames") { frames.forEach { add(it) } }
                 putJsonArray("causes") {
-                    generateSequence(source.cause) { it.cause }.take(4).forEach { add(symbol(it.javaClass.name)) }
+                    generateSequence(source?.cause) { it.cause }.take(4).forEach { add(symbol(it.javaClass.name)) }
                 }
             }.toString()
             val temporary = File(root, "$id.tmp")

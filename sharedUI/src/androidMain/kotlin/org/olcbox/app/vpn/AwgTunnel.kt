@@ -1,5 +1,7 @@
 package org.olcbox.app.vpn
 
+import org.olcbox.app.diagnostics.*
+
 import android.content.Context
 import org.amnezia.awg.backend.GoBackend
 import org.amnezia.awg.backend.Tunnel
@@ -35,14 +37,16 @@ object AwgTunnel {
     fun up(context: Context, configText: String, apps: TunnelApps = TunnelApps.All) {
         val b = backend ?: GoBackend(context.applicationContext).also { backend = it }
         OlcboxVpnState.setStatus(VpnStatus.Connecting)
+        var stage = VpnStage.VALIDATE_PROFILE
         try {
             val config = Config.parse(BufferedReader(StringReader(withApps(configText, apps))))
             OlcboxVpnState.addLog("AmneziaWG: ${apps.describe()}")
+            stage = VpnStage.START_TUNNEL
             b.setState(tunnel, Tunnel.State.UP, config)
             OlcboxVpnState.addLog("AmneziaWG: подключено")
         } catch (e: Exception) {
             OlcboxVpnState.addLog("AmneziaWG: не подключилось — ${e.message}")
-            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: "не подключилось"))
+            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: "не подключилось", VpnDiagnostic(VpnProtocol.AMNEZIA_WG, stage, if (stage == VpnStage.VALIDATE_PROFILE) VpnReason.PROFILE_INVALID else VpnReason.START_FAILED), e))
         }
     }
 

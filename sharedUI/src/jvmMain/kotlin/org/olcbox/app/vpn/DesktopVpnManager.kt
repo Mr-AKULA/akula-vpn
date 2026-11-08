@@ -1,5 +1,7 @@
 package org.olcbox.app.vpn
 
+import org.olcbox.app.diagnostics.*
+
 import org.olcbox.app.akula.refreshedServerMailbox
 import org.olcbox.app.akula.activeLocationWithWake
 import kotlinx.coroutines.CompletableDeferred
@@ -93,7 +95,7 @@ class DesktopVpnManager private constructor(
         if (ovpnActive) {
             ovpnActive = false
             addLog(reason)
-            setStatus(VpnStatus.Error(reason))
+            setStatus(VpnStatus.Error(reason, VpnDiagnostic(VpnProtocol.OPENVPN, VpnStage.RUNNING, VpnReason.PROCESS_EXITED)))
         }
     }
     @Volatile private var ovpnActive = false
@@ -297,7 +299,7 @@ class DesktopVpnManager private constructor(
         val location = active?.location?.normalized()
 
         if (location == null || !location.isComplete()) {
-            setStatus(VpnStatus.Error("No active location"))
+            setStatus(VpnStatus.Error("No active location", VpnDiagnostic(VpnProtocol.UNKNOWN, VpnStage.VALIDATE_PROFILE, VpnReason.NO_PROFILE)))
             addLog("Add a valid location before starting desktop proxy")
             return
         }
@@ -308,7 +310,7 @@ class DesktopVpnManager private constructor(
         // AmneziaWG/WireGuard (профиль из консоли AKULA): на Windows — служба официальной AmneziaWG
         if (location.isAwg) {
             if (DesktopPaths.os != DesktopOs.Windows) {
-                setStatus(VpnStatus.Error("AmneziaWG на этой системе пока не поддерживается"))
+                setStatus(VpnStatus.Error("AmneziaWG на этой системе пока не поддерживается", VpnDiagnostic(VpnProtocol.AMNEZIA_WG, VpnStage.START_TUNNEL, VpnReason.UNSUPPORTED_PLATFORM)))
                 return
             }
             try {
@@ -318,7 +320,7 @@ class DesktopVpnManager private constructor(
                 setStatus(VpnStatus.Connected)
             } catch (e: Exception) {
                 addLog("AmneziaWG: ${e.message}")
-                setStatus(VpnStatus.Error(e.message ?: "AmneziaWG не подключился"))
+                setStatus(VpnStatus.Error(e.message ?: "AmneziaWG не подключился", VpnDiagnostic(VpnProtocol.AMNEZIA_WG, VpnStage.START_TUNNEL, VpnReason.START_FAILED), e))
             }
             return
         }
@@ -329,7 +331,7 @@ class DesktopVpnManager private constructor(
                 setStatus(VpnStatus.Error(tr(
                     "OpenVPN на этой системе пока не поддерживается",
                     "OpenVPN is not supported on this system yet"
-                )))
+                ), VpnDiagnostic(VpnProtocol.OPENVPN, VpnStage.START_TUNNEL, VpnReason.UNSUPPORTED_PLATFORM)))
                 return
             }
             try {
@@ -339,7 +341,7 @@ class DesktopVpnManager private constructor(
                 setStatus(VpnStatus.Connected)
             } catch (e: Exception) {
                 addLog("OpenVPN: ${e.message}")
-                setStatus(VpnStatus.Error(e.message ?: tr("OpenVPN не подключился", "OpenVPN failed to connect")))
+                setStatus(VpnStatus.Error(e.message ?: tr("OpenVPN не подключился", "OpenVPN failed to connect"), VpnDiagnostic(VpnProtocol.OPENVPN, VpnStage.START_TUNNEL, VpnReason.START_FAILED), e))
             }
             return
         }
@@ -467,7 +469,7 @@ class DesktopVpnManager private constructor(
             stopDesktopMode(finalStatus = false)
 
             if (e !is CancellationException && requestGeneration == generation) {
-                setStatus(VpnStatus.Error(e.message ?: "Desktop start failed"))
+                setStatus(VpnStatus.Error(e.message ?: "Desktop start failed", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.START_TRANSPORT, VpnReason.START_FAILED), e))
             }
         }
     }
@@ -832,7 +834,8 @@ class DesktopVpnManager private constructor(
                     handleUnexpectedProcessExit(
                         logMessage = "olcRTC process exited unexpectedly with code $exitCode",
                         errorMessage = "olcRTC exited unexpectedly (code $exitCode)",
-                        requestGeneration = requestGeneration
+                        requestGeneration = requestGeneration,
+                        exitCode = exitCode
                     )
                 }
             }
@@ -852,7 +855,8 @@ class DesktopVpnManager private constructor(
                     handleUnexpectedProcessExit(
                         logMessage = "TUN process exited unexpectedly with code $exitCode",
                         errorMessage = "TUN process exited unexpectedly (code $exitCode)",
-                        requestGeneration = requestGeneration
+                        requestGeneration = requestGeneration,
+                        exitCode = exitCode
                     )
                 }
             }
@@ -862,13 +866,14 @@ class DesktopVpnManager private constructor(
     private suspend fun handleUnexpectedProcessExit(
         logMessage: String,
         errorMessage: String,
+        exitCode: Int,
         requestGeneration: Long
     ) {
         addLog(logMessage)
         stopDesktopMode(finalStatus = false)
 
         if (requestGeneration == generation) {
-            setStatus(VpnStatus.Error(errorMessage))
+            setStatus(VpnStatus.Error(errorMessage, VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.RUNNING, VpnReason.PROCESS_EXITED, exitCode = exitCode)))
         }
     }
 

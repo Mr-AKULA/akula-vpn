@@ -1,5 +1,7 @@
 package org.olcbox.app.vpn
 
+import org.olcbox.app.diagnostics.*
+
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -279,6 +281,7 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                     locations.setActiveLocationId(entry.storageId)
                     OlcboxVpnState.addLog("Автопереключение: пробую «${entry.location.displayName()}»")
                 }
+                val attemptStarted = android.os.SystemClock.elapsedRealtime()
                 startEntry(entry)
                 if (OlcboxVpnState.status.value is VpnStatus.Error) return@launch  // не запустилось (пустой список приложений и т.п.)
                 val tunnelEntry = !entry.awgConfig.isNullOrBlank() || !entry.ovpnConfig.isNullOrBlank()
@@ -288,23 +291,36 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                     if (!entry.awgConfig.isNullOrBlank()) OlcboxVpnState.setStatus(VpnStatus.Connected)
                     return@launch
                 }
+                // A service can fail while we wait (e.g. OpenVPN AUTH_FAILED).
+                // Preserve that real failure instead of replacing it with a timeout.
+                if (OlcboxVpnState.status.value is VpnStatus.Error) return@launch
+                val diagnostic = VpnDiagnostic.timeout(
+                    protocolFor(entry), android.os.SystemClock.elapsedRealtime() - attemptStarted, i + 1,
+                )
                 if (single) {
                     // Сервер молчит — не крутим «подключение» бесконечно (OpenVPN переподключался вечно)
                     OlcboxVpnState.addLog("«${entry.location.displayName()}» не ответило")
                     stopEntry(entry)
                     kotlinx.coroutines.delay(300)
                     OlcboxVpnState.setStatus(VpnStatus.Error(org.olcbox.app.ui.i18n.tr(
-                        "Сервер не отвечает — он выключен, удалён или недоступен из этой сети",
-                        "The server does not respond — it is off, deleted or unreachable from this network"
-                    )))
+                        "Не удалось установить соединение за отведённое время",
+                        "Connection was not established within the time limit"
+                    ), diagnostic))
                     return@launch
                 }
                 OlcboxVpnState.addLog("«${entry.location.displayName()}» не ответило — следующее")
+                AppDiagnostics.record("vpn.attempt", diagnostic = diagnostic)
                 stopEntry(entry)
                 kotlinx.coroutines.delay(500)
             }
-            OlcboxVpnState.setStatus(VpnStatus.Error("Ни одно подключение не ответило"))
+            OlcboxVpnState.setStatus(VpnStatus.Error("Ни одно подключение не ответило", VpnDiagnostic(VpnProtocol.UNKNOWN, VpnStage.WAIT_CONNECTION, VpnReason.ALL_ATTEMPTS_FAILED, attempt = order.size)))
         }
+    }
+
+    private fun protocolFor(entry: org.olcbox.app.data.model.LocationEntry): VpnProtocol = when {
+        !entry.awgConfig.isNullOrBlank() -> VpnProtocol.AMNEZIA_WG
+        !entry.ovpnConfig.isNullOrBlank() -> VpnProtocol.OPENVPN
+        else -> VpnProtocol.OLCRTC
     }
 
     private suspend fun startEntry(entry: org.olcbox.app.data.model.LocationEntry) {
@@ -315,7 +331,7 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
             TunnelApps.from(appContext, _splitTunnelSettings.value)
         } catch (e: IllegalStateException) {
             OlcboxVpnState.addLog(e.message ?: "")
-            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: ""))
+            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: "", VpnDiagnostic(protocolFor(entry), VpnStage.SPLIT_TUNNEL, VpnReason.SPLIT_APPS_INVALID), e))
             return
         }
         when {
@@ -337,13 +353,14 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
     private suspend fun waitConnected(entry: org.olcbox.app.data.model.LocationEntry, patient: Boolean = false): Boolean {
         val isAwg = !entry.awgConfig.isNullOrBlank()
         val isOvpn = !entry.ovpnConfig.isNullOrBlank()  // OpenVPN (TLS) подключается дольше WireGuard — 20 с, как olcrtc
-        val deadline = System.currentTimeMillis() + when {
+        val deadline = android.os.SystemClock.elapsedRealtime() + when {
             patient && isAwg -> 15_000
             patient -> 30_000
             isAwg -> 8_000
             else -> 20_000
         }
-        while (System.currentTimeMillis() < deadline) {
+        while (android.os.SystemClock.elapsedRealtime() < deadline) {
+            if (OlcboxVpnState.status.value is VpnStatus.Error) return false
             if (isAwg && AwgTunnel.hasHandshake()) return true
             if (isOvpn && OvpnTunnel.isConnected()) return true
             if (!isAwg && !isOvpn && OlcboxVpnState.status.value == VpnStatus.Connected) return true

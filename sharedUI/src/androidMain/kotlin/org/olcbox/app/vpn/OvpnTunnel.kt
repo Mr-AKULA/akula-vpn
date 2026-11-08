@@ -1,5 +1,7 @@
 package org.olcbox.app.vpn
 
+import org.olcbox.app.diagnostics.*
+
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -32,7 +34,7 @@ object OvpnTunnel {
                 when (lvl) {
                     ConnectionStatus.LEVEL_CONNECTED -> VpnStatus.Connected
                     ConnectionStatus.LEVEL_NOTCONNECTED -> VpnStatus.Disconnected
-                    ConnectionStatus.LEVEL_AUTH_FAILED -> VpnStatus.Error("Сервер не принял профиль")
+                    ConnectionStatus.LEVEL_AUTH_FAILED -> VpnStatus.Error("Сервер не принял профиль", VpnDiagnostic(VpnProtocol.OPENVPN, VpnStage.AUTHENTICATE, VpnReason.AUTH_REJECTED))
                     else -> VpnStatus.Connecting
                 }
             )
@@ -49,6 +51,7 @@ object OvpnTunnel {
         OvpnStatus.addStateListener(listener)
         active = true
         OlcboxVpnState.setStatus(VpnStatus.Connecting)
+        var stage = VpnStage.VALIDATE_PROFILE
         try {
             val parser = ConfigParser()
             parser.parseConfig(StringReader(configText))
@@ -62,12 +65,13 @@ object OvpnTunnel {
             }
             OlcboxVpnState.addLog("OpenVPN: ${apps.describe()}")
             ProfileManager.setTemporaryProfile(context.applicationContext, profile)
+            stage = VpnStage.START_TUNNEL
             VPNLaunchHelper.startOpenVpn(profile, context.applicationContext, "AKULA VPN", true)
             OlcboxVpnState.addLog("OpenVPN: запускаю «$name»")
         } catch (e: Exception) {
             active = false
             OlcboxVpnState.addLog("OpenVPN: профиль не прочитался — ${e.message}")
-            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: "профиль не прочитался"))
+            OlcboxVpnState.setStatus(VpnStatus.Error(e.message ?: "профиль не прочитался", VpnDiagnostic(VpnProtocol.OPENVPN, stage, if (stage == VpnStage.VALIDATE_PROFILE) VpnReason.PROFILE_INVALID else VpnReason.START_FAILED), e))
         }
     }
 

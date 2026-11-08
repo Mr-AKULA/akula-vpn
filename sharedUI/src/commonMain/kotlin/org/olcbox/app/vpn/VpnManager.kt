@@ -10,8 +10,16 @@ sealed class VpnStatus {
     object Connected : VpnStatus()
     object Reconnecting : VpnStatus()
     object Stopping : VpnStatus()
-    data class Error(val message: String) : VpnStatus() {
-        init { org.olcbox.app.diagnostics.AppDiagnostics.record("vpn.connection") }
+    data class Error(
+        val message: String,
+        val diagnostic: org.olcbox.app.diagnostics.VpnDiagnostic = org.olcbox.app.diagnostics.VpnDiagnostic(
+            org.olcbox.app.diagnostics.VpnProtocol.UNKNOWN,
+            org.olcbox.app.diagnostics.VpnStage.UNKNOWN,
+            org.olcbox.app.diagnostics.VpnReason.UNKNOWN_STATE,
+        ),
+        val error: Throwable? = null,
+    ) : VpnStatus() {
+        init { org.olcbox.app.diagnostics.AppDiagnostics.record("vpn.connection", error, diagnostic) }
     }
 }
 

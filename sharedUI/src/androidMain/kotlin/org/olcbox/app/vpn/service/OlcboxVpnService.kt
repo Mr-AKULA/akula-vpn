@@ -1,5 +1,7 @@
 package org.olcbox.app.vpn.service
 
+import org.olcbox.app.diagnostics.*
+
 import org.olcbox.app.akula.refreshedServerMailbox
 import org.olcbox.app.akula.activeLocationWithWake
 import android.app.NotificationChannel
@@ -473,7 +475,7 @@ class OlcboxVpnService : VpnService() {
                     val active = repository.activeLocationWithWake { addLog(it) }
                     val location = active?.location?.normalized()
                     if (location == null || !location.isComplete()) {
-                        setStatus(VpnStatus.Error("No active location"))
+                        setStatus(VpnStatus.Error("No active location", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.VALIDATE_PROFILE, VpnReason.NO_PROFILE)))
                         updateNotification("Add a location first")
                         stopTransportProcesses(closeTun = true, waitForSocksPort = false)
                         return@withLock
@@ -702,7 +704,7 @@ class OlcboxVpnService : VpnService() {
             unbindProcessFromNetwork()
             stopMobileAndWait()
             if (!staleRequest && setErrorOnFailure) {
-                setStatus(VpnStatus.Error(message))
+                setStatus(VpnStatus.Error(message, VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.START_TRANSPORT, VpnReason.TRANSPORT_FAILED), e))
                 updateNotification("Connection failed")
             }
             false
@@ -747,7 +749,7 @@ class OlcboxVpnService : VpnService() {
         return try {
             if (!ensureNativeLibrariesLoaded()) {
                 addLog("tun2socks native libraries are unavailable")
-                setStatus(VpnStatus.Error("tun2socks native libraries are unavailable"))
+                setStatus(VpnStatus.Error("tun2socks native libraries are unavailable", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.START_TUNNEL, VpnReason.NATIVE_UNAVAILABLE)))
                 updateNotification("Tunnel failed")
                 return false
             }
@@ -761,6 +763,7 @@ class OlcboxVpnService : VpnService() {
                     val result = startTun2socksNative(configFile.absolutePath, nativeFd)
                     if (OlcboxVpnState.status.value !is VpnStatus.Stopping && result != 0) {
                         addLog("tun2socks exited with code $result")
+                        if (!tun2socksStopRequested) AppDiagnostics.record("vpn.tunnel", diagnostic = VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.RUNNING, VpnReason.PROCESS_EXITED, exitCode = result))
                     } else {
                         addLog("tun2socks stopped")
                     }
@@ -772,7 +775,7 @@ class OlcboxVpnService : VpnService() {
             true
         } catch (e: Exception) {
             addLog("tun2socks start failed: ${e.message}")
-            setStatus(VpnStatus.Error(e.message ?: "tun2socks failed"))
+            setStatus(VpnStatus.Error(e.message ?: "tun2socks failed", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.START_TUNNEL, VpnReason.START_FAILED), e))
             updateNotification("Tunnel failed")
             false
         }
@@ -791,10 +794,12 @@ class OlcboxVpnService : VpnService() {
             if (!applySplitTunneling(builder)) return null
 
             currentNetwork?.let { builder.setUnderlyingNetworks(arrayOf(it)) }
-            builder.establish()
+            builder.establish().also { tunnel ->
+                if (tunnel == null) setStatus(VpnStatus.Error("VPN permission is required", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.ESTABLISH_TUN, VpnReason.PERMISSION_REQUIRED)))
+            }
         } catch (e: Exception) {
             addLog("VPN establish failed: ${e.message}")
-            setStatus(VpnStatus.Error(e.message ?: "VPN establish failed"))
+            setStatus(VpnStatus.Error(e.message ?: "VPN establish failed", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.ESTABLISH_TUN, VpnReason.TUN_FAILED), e))
             updateNotification("VPN tunnel error")
             null
         }
@@ -815,7 +820,7 @@ class OlcboxVpnService : VpnService() {
 
                 if (packages.isEmpty()) {
                     addLog("Split tunneling proxy list is empty")
-                    setStatus(VpnStatus.Error("Select apps for split tunneling"))
+                    setStatus(VpnStatus.Error("Select apps for split tunneling", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.SPLIT_TUNNEL, VpnReason.SPLIT_APPS_INVALID)))
                     updateNotification("Split tunneling error")
                     return false
                 }
@@ -823,7 +828,7 @@ class OlcboxVpnService : VpnService() {
                 val applied = packages.count { addAllowedApp(builder, it) }
                 if (applied == 0) {
                     addLog("Split tunneling has no valid proxy apps")
-                    setStatus(VpnStatus.Error("Selected apps are unavailable"))
+                    setStatus(VpnStatus.Error("Selected apps are unavailable", VpnDiagnostic(VpnProtocol.OLCRTC, VpnStage.SPLIT_TUNNEL, VpnReason.SPLIT_APPS_INVALID)))
                     updateNotification("Split tunneling error")
                     false
                 } else {
