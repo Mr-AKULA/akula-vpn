@@ -33,6 +33,43 @@ import kotlin.test.assertTrue
 class LocationsRepositoryImplTest {
 
     @Test
+    fun subscriptionFailuresIncludeStageStatusAndElapsedTime() = runTest {
+        val reports = mutableListOf<org.olcbox.app.diagnostics.VpnDiagnostic>()
+        val previous = org.olcbox.app.diagnostics.AppDiagnostics.receiver
+        org.olcbox.app.diagnostics.AppDiagnostics.receiver = { operation, _, diagnostic ->
+            if (operation == "subscription.download" && diagnostic != null) reports.add(diagnostic)
+        }
+        try {
+            for (status in listOf(403, 503, 200)) {
+                val client = HttpClient(MockEngine { respond("", HttpStatusCode.fromValue(status)) })
+                try {
+                    LocationsRepositoryImpl(FakeLocationsDataSource(), client)
+                        .importTextDetailed("https://example.test/private-subscription")
+                } finally { client.close() }
+                val report = reports.last()
+                assertEquals(status, report.httpStatus)
+                assertTrue(report.elapsedMs!! >= 0)
+                assertEquals(false, report.proxyEnabled)
+                assertEquals(false, report.insecureTls)
+                assertEquals(if (status == 200) org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_BODY
+                    else org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_REQUEST, report.stage)
+                assertEquals(if (status == 200) org.olcbox.app.diagnostics.VpnReason.EMPTY_RESPONSE
+                    else org.olcbox.app.diagnostics.VpnReason.HTTP_ERROR, report.reason)
+            }
+            val client = HttpClient(MockEngine { throw IllegalStateException("private-url") })
+            try {
+                LocationsRepositoryImpl(FakeLocationsDataSource(), client)
+                    .importTextDetailed("https://example.test/private-subscription")
+            } finally { client.close() }
+            assertEquals(org.olcbox.app.diagnostics.VpnReason.DOWNLOAD_FAILED, reports.last().reason)
+            assertEquals(org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_REQUEST, reports.last().stage)
+            // Import tries identity and browser request modes for each failed download.
+            assertEquals(8, reports.size)
+        } finally { org.olcbox.app.diagnostics.AppDiagnostics.receiver = previous }
+    }
+
+
+    @Test
     fun exportsAndImportsBundleV5WithActiveLocation() = runTest {
         val first = LocationEntry.from(
             "amsterdam",

@@ -296,6 +296,10 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
                 if (OlcboxVpnState.status.value is VpnStatus.Error) return@launch
                 val diagnostic = VpnDiagnostic.timeout(
                     protocolFor(entry), android.os.SystemClock.elapsedRealtime() - attemptStarted, i + 1,
+                ).copy(
+                    timeoutMs = org.olcbox.app.diagnostics.ConnectionWaitPolicy.timeoutMs(protocolFor(entry), single),
+                    autoFailover = _autoFailoverEnabled.value,
+                    profileCount = order.size,
                 )
                 if (single) {
                     // Сервер молчит — не крутим «подключение» бесконечно (OpenVPN переподключался вечно)
@@ -349,16 +353,10 @@ class AndroidVpnManager(private val context: Context) : VpnManager {
         }
     }
 
-    /** patient — единственное подключение: ждём дольше (AmneziaWG 15 с, остальное 30 с), спешить некуда. */
     private suspend fun waitConnected(entry: org.olcbox.app.data.model.LocationEntry, patient: Boolean = false): Boolean {
         val isAwg = !entry.awgConfig.isNullOrBlank()
         val isOvpn = !entry.ovpnConfig.isNullOrBlank()  // OpenVPN (TLS) подключается дольше WireGuard — 20 с, как olcrtc
-        val deadline = android.os.SystemClock.elapsedRealtime() + when {
-            patient && isAwg -> 15_000
-            patient -> 30_000
-            isAwg -> 8_000
-            else -> 20_000
-        }
+        val deadline = android.os.SystemClock.elapsedRealtime() + org.olcbox.app.diagnostics.ConnectionWaitPolicy.timeoutMs(protocolFor(entry), patient)
         while (android.os.SystemClock.elapsedRealtime() < deadline) {
             if (OlcboxVpnState.status.value is VpnStatus.Error) return false
             if (isAwg && AwgTunnel.hasHandshake()) return true

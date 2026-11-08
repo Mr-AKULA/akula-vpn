@@ -66,4 +66,25 @@ class ReportsTests(unittest.TestCase):
         for bad in [{**context,'message':'secret'}, {**context,'protocol':'https://private'}, {**context,'elapsed_ms':True}, {**context,'reason':['unknown']}, {**context,'attempt':0}, {**context,'exit_code':2147483648}, {**context,'elapsed_ms':86400001}, None]:
             self.assertEqual(self.client.post('/api/app-reports',json={**data,'context':bad}).status_code,422)
 
+    def test_extended_network_context_and_closed_privacy_schema(self):
+        context=dict(protocol='unknown',stage='subscription_request',reason='http_error',elapsed_ms=1200,http_status=503,proxy_enabled=False,insecure_tls=False)
+        network=dict(transport='cellular',connected=True,validated=False,captive_portal=False,metered=True,vpn_active=False)
+        data={**self.report,'id':str(uuid.uuid4()),'app_version':'1.3.4','context':context,'network':network,'network_error':'reset'}
+        self.assertEqual(self.client.post('/api/app-reports',json=data).status_code,202)
+        changed={**data,'id':str(uuid.uuid4()),'network':{**network,'transport':'wifi'},'context':{**context,'elapsed_ms':2000}}
+        self.assertEqual(self.client.post('/api/app-reports',json=changed).status_code,202)
+        changed_status={**data,'id':str(uuid.uuid4()),'context':{**context,'http_status':504}}
+        self.assertEqual(self.client.post('/api/app-reports',json=changed_status).status_code,202)
+        rows=reports._rows()
+        self.assertEqual(rows[1]['fingerprint'],rows[2]['fingerprint'])
+        self.assertNotEqual(rows[0]['fingerprint'],rows[1]['fingerprint'])
+        for bad in [None,{},dict(transport='wifi',ssid='private'),dict(transport='wifi',connected=1),dict(transport=['wifi']),dict(transport='private')]:
+            self.assertEqual(self.client.post('/api/app-reports',json={**data,'network':bad}).status_code,422)
+        for bad in ['private message',{},None]:
+            self.assertEqual(self.client.post('/api/app-reports',json={**data,'network_error':bad}).status_code,422)
+        for field,value in [('http_status',600),('http_status',True),('timeout_ms',86400001),('profile_count',0),('auto_failover',1),('proxy_enabled','secret')]:
+            self.assertEqual(self.client.post('/api/app-reports',json={**data,'context':{**context,field:value}}).status_code,422)
+        timeout={**data,'id':str(uuid.uuid4()),'context':dict(protocol='amnezia_wg',stage='wait_handshake',reason='handshake_timeout',timeout_ms=30000,auto_failover=True,profile_count=3)}
+        self.assertEqual(self.client.post('/api/app-reports',json=timeout).status_code,202)
+
 if __name__=='__main__': unittest.main(verbosity=2)

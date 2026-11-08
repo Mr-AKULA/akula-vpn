@@ -692,6 +692,17 @@ class LocationsRepositoryImpl(
         } else {
             null
         }
+        val reportStarted = kotlin.time.TimeSource.Monotonic.markNow()
+        fun reportFailure(stage: org.olcbox.app.diagnostics.VpnStage, reason: org.olcbox.app.diagnostics.VpnReason, error: Throwable? = null, httpStatus: Int? = null) {
+            org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.download", error,
+                org.olcbox.app.diagnostics.VpnDiagnostic(
+                    org.olcbox.app.diagnostics.VpnProtocol.UNKNOWN, stage, reason,
+                    elapsedMs = reportStarted.elapsedNow().inWholeMilliseconds,
+                    proxyEnabled = subscriptionProxy != null,
+                    insecureTls = allowInsecureRequests,
+                    httpStatus = httpStatus,
+                ))
+        }
         val usesDedicatedClient = subscriptionProxy != null || allowInsecureRequests
         val client = if (usesDedicatedClient) {
             subscriptionHttpClientFactory(subscriptionProxy, allowInsecureRequests)
@@ -722,12 +733,12 @@ class LocationsRepositoryImpl(
                     }
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.download", error)
+                    reportFailure(org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_REQUEST, org.olcbox.app.diagnostics.VpnReason.DOWNLOAD_FAILED, error)
                     return@withProxyAuthentication error.toDownloadFailure()
                 }
 
                 if (response.status.value !in 200..299) {
-                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.http-${response.status.value}")
+                    reportFailure(org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_REQUEST, org.olcbox.app.diagnostics.VpnReason.HTTP_ERROR, httpStatus = response.status.value)
                     return@withProxyAuthentication DownloadSubscriptionResult.Failure(
                         LocationImportFailureKind.Http,
                         "Subscription server returned HTTP ${response.status.value}"
@@ -738,10 +749,11 @@ class LocationsRepositoryImpl(
                     response.bodyAsText()
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
-                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.download", error)
+                    reportFailure(org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_BODY, org.olcbox.app.diagnostics.VpnReason.DOWNLOAD_FAILED, error, response.status.value)
                     return@withProxyAuthentication error.toDownloadFailure()
                 }
                 if (content.isBlank()) {
+                    reportFailure(org.olcbox.app.diagnostics.VpnStage.SUBSCRIPTION_BODY, org.olcbox.app.diagnostics.VpnReason.EMPTY_RESPONSE, httpStatus = response.status.value)
                     return@withProxyAuthentication DownloadSubscriptionResult.Failure(
                         LocationImportFailureKind.EmptyResponse,
                         "Subscription server returned an empty response"

@@ -38,22 +38,37 @@ def _db():
 
 def _validate(data):
     fields = {"id", "kind", "operation", "app_version", "platform", "os_version", "occurred_at_ms", "exception_type", "frames", "causes"}
-    if not isinstance(data, dict) or not fields <= set(data) or set(data) - fields - {"context"}:
+    if not isinstance(data, dict) or not fields <= set(data) or set(data) - fields - {"context", "network", "network_error"}:
         raise ValueError("Unexpected fields")
+    if "network_error" in data:
+        if not isinstance(data["network_error"], str) or data["network_error"] not in {"dns", "tls", "timeout", "refused", "reset", "unreachable", "broken_pipe", "aborted", "socket_other"}:
+            raise ValueError("Invalid network error")
+    if "network" in data:
+        network = data["network"]
+        flags = {"connected", "validated", "captive_portal", "metered", "vpn_active"}
+        if not isinstance(network, dict) or "transport" not in network or set(network) - flags - {"transport"}:
+            raise ValueError("Unexpected network fields")
+        if not isinstance(network["transport"], str) or network["transport"] not in {"unknown", "none", "wifi", "cellular", "ethernet", "other", "mixed"}:
+            raise ValueError("Invalid network transport")
+        if any(type(network[field]) is not bool for field in flags & set(network)):
+            raise ValueError("Invalid network flag")
     if "context" in data:
         context = data["context"]
         required = {"protocol", "stage", "reason"}
-        if not isinstance(context, dict) or not required <= set(context) or set(context) - required - {"elapsed_ms", "attempt", "exit_code"}:
+        if not isinstance(context, dict) or not required <= set(context) or set(context) - required - {"elapsed_ms", "attempt", "exit_code", "timeout_ms", "auto_failover", "profile_count", "proxy_enabled", "insecure_tls", "http_status"}:
             raise ValueError("Unexpected context fields")
         for field, allowed in (
             ("protocol", {"unknown", "amnezia_wg", "openvpn", "olcrtc"}),
-            ("stage", {"unknown", "validate_profile", "start_tunnel", "wait_handshake", "wait_connection", "authenticate", "start_transport", "establish_tun", "running", "split_tunnel"}),
-            ("reason", {"unknown_state", "handshake_timeout", "connection_timeout", "auth_rejected", "profile_invalid", "start_failed", "transport_failed", "native_unavailable", "tun_failed", "permission_required", "no_profile", "unsupported_platform", "split_apps_invalid", "process_exited", "all_attempts_failed"}),
+            ("stage", {"unknown", "validate_profile", "start_tunnel", "wait_handshake", "wait_connection", "authenticate", "start_transport", "establish_tun", "running", "split_tunnel", "subscription_request", "subscription_body"}),
+            ("reason", {"unknown_state", "handshake_timeout", "connection_timeout", "auth_rejected", "profile_invalid", "start_failed", "transport_failed", "native_unavailable", "tun_failed", "permission_required", "no_profile", "unsupported_platform", "split_apps_invalid", "process_exited", "all_attempts_failed", "download_failed", "http_error", "empty_response"}),
         ):
             if not isinstance(context[field], str) or context[field] not in allowed:
                 raise ValueError("Invalid context " + field)
-        for field, low, high in (("elapsed_ms", 0, 86400000), ("attempt", 1, 10000), ("exit_code", -2147483648, 2147483647)):
+        for field, low, high in (("elapsed_ms", 0, 86400000), ("attempt", 1, 10000), ("exit_code", -2147483648, 2147483647), ("timeout_ms", 0, 86400000), ("profile_count", 1, 10000), ("http_status", 100, 599)):
             if field in context and (type(context[field]) is not int or not low <= context[field] <= high):
+                raise ValueError("Invalid context " + field)
+        for field in ("auto_failover", "proxy_enabled", "insecure_tls"):
+            if field in context and type(context[field]) is not bool:
                 raise ValueError("Invalid context " + field)
     if str(UUID(data["id"])) != data["id"]:
         raise ValueError("Invalid id")
@@ -105,6 +120,10 @@ async def ingest(request: Request):
     signature = [data["kind"], data["operation"], data["exception_type"], data["frames"][:4]]
     if "context" in data:
         signature += [data["context"][field] for field in ("protocol", "stage", "reason")]
+    if "network_error" in data:
+        signature += [data["network_error"]]
+    if data.get("context", {}).get("http_status") is not None:
+        signature += [data["context"]["http_status"]]
     fingerprint = hashlib.sha256(json.dumps(signature).encode()).hexdigest()[:16]
     with _lock, _db() as db:
         # Bounded storage; never displace an existing report to accept an upload flood.
@@ -149,6 +168,9 @@ def report_page(admin=Depends(require_admin)):
                 "split_apps_invalid": "Неверный список приложений раздельного туннеля",
                 "process_exited": "Компонент неожиданно завершился",
                 "all_attempts_failed": "Все попытки подключения завершились неудачно",
+                "download_failed": "Ошибка загрузки подписки",
+                "http_error": "Сервер подписки вернул ошибку HTTP",
+                "empty_response": "Сервер подписки вернул пустой ответ",
                 "unknown_state": "Причина пока не определена",
             }
             title += ' · ' + context["protocol"] + ' · ' + reasons.get(context["reason"], context["reason"])

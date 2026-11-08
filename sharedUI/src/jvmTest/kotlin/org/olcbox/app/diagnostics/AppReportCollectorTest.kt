@@ -62,5 +62,30 @@ class AppReportCollectorTest {
         flush.invoke(AppReportCollector)
         assertEquals(0, queue.listFiles()!!.size, "Only acknowledged reports leave the queue")
         assertEquals(5, delivered.size)
+        AppReportCollector.networkSnapshotProvider = {
+            NetworkSnapshot(NetworkTransport.CELLULAR, connected = true, validated = false, metered = true, vpnActive = false)
+        }
+        val socket = java.net.SocketException("ECONNRESET SECRET https://private.example/key")
+        AppDiagnostics.record("subscription.download", socket, VpnDiagnostic(
+            VpnProtocol.UNKNOWN, VpnStage.SUBSCRIPTION_BODY, VpnReason.DOWNLOAD_FAILED,
+            elapsedMs = 700, httpStatus = 200, proxyEnabled = false, insecureTls = false,
+        ))
+        val detailed = queue.listFiles()!!.single().readText()
+        assertTrue(detailed.contains("\"network_error\":\"reset\""))
+        assertTrue(detailed.contains("\"transport\":\"cellular\""))
+        assertTrue(detailed.contains("\"validated\":false"))
+        assertTrue(detailed.contains("\"stage\":\"subscription_body\""))
+        assertTrue(detailed.contains("\"http_status\":200"))
+        assertFalse(detailed.contains("SECRET"))
+        assertFalse(detailed.contains("private.example"))
+        AppReportCollector.networkSnapshotProvider = { error("provider unavailable") }
+        AppDiagnostics.record("test.increased-wait", diagnostic = VpnDiagnostic.timeout(VpnProtocol.AMNEZIA_WG, 30050, 2)
+            .copy(timeoutMs = 30000, autoFailover = true, profileCount = 3))
+        val increased = queue.listFiles()!!.map { it.readText() }.single { it.contains("\"timeout_ms\"") }
+        assertTrue(increased.contains("\"timeout_ms\":30000"))
+        assertTrue(increased.contains("\"profile_count\":3"))
+        assertFalse(increased.contains("\"network\""), "Provider failure must not prevent recording")
+        flush.invoke(AppReportCollector)
+        assertEquals(0, queue.listFiles()!!.size)
     }
 }

@@ -9,6 +9,9 @@ class App : de.blinkt.openvpn.core.ICSOpenVPNApplication() {
     }
 
     override fun onCreate() {
+        org.olcbox.app.diagnostics.AppReportCollector.networkSnapshotProvider = {
+            org.olcbox.app.diagnostics.AndroidNetworkSnapshot.read(applicationContext)
+        }
         org.olcbox.app.diagnostics.AppReportCollector.install(
             noBackupFilesDir, "android", android.os.Build.VERSION.RELEASE
         )

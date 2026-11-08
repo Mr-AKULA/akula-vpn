@@ -16,6 +16,7 @@ object AppReportCollector {
     private var directory: File? = null
     private var platform = "unknown"
     private var osVersion = "unknown"
+    @Volatile var networkSnapshotProvider: (() -> NetworkSnapshot)? = null
     private val recent = mutableMapOf<String, Long>()
     private val worker = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "akula-reports").apply { isDaemon = true }
@@ -65,7 +66,9 @@ object AppReportCollector {
             }.take(48).toList()
             val type = source?.let { symbol(it.javaClass.name) } ?: "diagnostic.event"
             val operationName = operation.filter { it.isLetterOrDigit() || it in "._-" }.take(64)
-            val signature = "$kind:$operationName:$type:${frames.take(4)}:${diagnostic?.protocol}:${diagnostic?.stage}:${diagnostic?.reason}"
+            val networkError = networkFailure(error)
+            val signature = "$kind:$operationName:$type:${frames.take(4)}:${diagnostic?.protocol}:${diagnostic?.stage}:${diagnostic?.reason}:$networkError:${diagnostic?.httpStatus}"
+            val network = if (kind == "error") runCatching { networkSnapshotProvider?.invoke() }.getOrNull() else null
             val now = System.currentTimeMillis()
             if (kind != "crash" && now - (recent[signature] ?: 0L) < 300000) return
             if (recent.size >= 128) recent.clear()
@@ -82,6 +85,15 @@ object AppReportCollector {
                 put("os_version", osVersion)
                 put("occurred_at_ms", occurredAt)
                 put("exception_type", type)
+                networkError?.let { put("network_error", it) }
+                network?.let { snapshot -> putJsonObject("network") {
+                    put("transport", snapshot.transport.name.lowercase())
+                    snapshot.connected?.let { put("connected", it) }
+                    snapshot.validated?.let { put("validated", it) }
+                    snapshot.captivePortal?.let { put("captive_portal", it) }
+                    snapshot.metered?.let { put("metered", it) }
+                    snapshot.vpnActive?.let { put("vpn_active", it) }
+                } }
                 if (diagnostic != null) putJsonObject("context") {
                     put("protocol", diagnostic.protocol.name.lowercase())
                     put("stage", diagnostic.stage.name.lowercase())
@@ -89,6 +101,12 @@ object AppReportCollector {
                     diagnostic.elapsedMs?.let { put("elapsed_ms", it.coerceIn(0, 86_400_000)) }
                     diagnostic.attempt?.let { put("attempt", it.coerceIn(1, 10000)) }
                     diagnostic.exitCode?.let { put("exit_code", it) }
+                    diagnostic.timeoutMs?.let { put("timeout_ms", it.coerceIn(0, 86_400_000)) }
+                    diagnostic.autoFailover?.let { put("auto_failover", it) }
+                    diagnostic.profileCount?.let { put("profile_count", it.coerceIn(1, 10000)) }
+                    diagnostic.proxyEnabled?.let { put("proxy_enabled", it) }
+                    diagnostic.insecureTls?.let { put("insecure_tls", it) }
+                    diagnostic.httpStatus?.let { put("http_status", it.coerceIn(100, 599)) }
                 }
                 putJsonArray("frames") { frames.forEach { add(it) } }
                 putJsonArray("causes") {
