@@ -52,6 +52,7 @@ class DesktopDeepLinks private constructor(
     }
 
     fun installMacHandler() {
+        if (DesktopPaths.os != DesktopOs.MacOS) return
         if (Desktop.isDesktopSupported()) {
             val desktop = Desktop.getDesktop()
             if (desktop.isSupported(Desktop.Action.APP_OPEN_URI)) {

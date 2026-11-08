@@ -41,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.SwapHoriz
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Apps
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Delete
@@ -455,6 +456,15 @@ private fun SharedConnectionSettingsContent(
                     onClick = onSocksProxyClick
                 )
             }
+
+            SharedNavigationRow(
+                title = tr("Какие приложения через VPN", "Split Tunneling"),
+                value = tr("На ПК пока недоступно", "Not available on desktop yet"),
+                icon = Icons.Outlined.Apps,
+                enabled = false,
+                showChevron = false,
+                onClick = {}
+            )
 
             details
                 .filterNot { (title, _) -> title.equals("Mode", ignoreCase = true) }
@@ -1039,6 +1049,12 @@ private fun SharedLogsSettingsContent(
                 Text(tr("Поделиться", "Share"))
             }
         }
+
+        Text(
+            text = tr("Технические отчёты об ошибках и вылетах отправляются AKULA автоматически. Без ключей, конфигураций и истории посещений.", "Technical error and crash reports are sent to AKULA automatically. No keys, configurations or browsing history."),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         Spacer(Modifier.height(16.dp))
 

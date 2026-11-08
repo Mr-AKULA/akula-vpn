@@ -101,6 +101,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -120,6 +121,25 @@ android {
     }
 }
 
+// AGP 9 does not always carry Compose Multiplatform resources from the KMP
+// library into the Android application APK. The generated Res paths expect
+// these files under assets/composeResources/<resource package>/.
+val packageSharedComposeResources = tasks.register<Sync>("packageSharedComposeResources") {
+    from(project(":sharedUI").layout.projectDirectory.dir("src/commonMain/composeResources")) {
+        into("composeResources/multiplatform_app.sharedui.generated.resources")
+    }
+    into(layout.buildDirectory.dir("generated/akulaComposeAssets"))
+}
+android.sourceSets.getByName("main").assets.srcDir(
+    layout.buildDirectory.dir("generated/akulaComposeAssets").get().asFile
+)
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }.configureEach {
+    dependsOn(packageSharedComposeResources)
+}
+tasks.matching { it.name.contains("lint", ignoreCase = true) }.configureEach {
+    dependsOn(packageSharedComposeResources)
+}
+
 // In AGP 9.0+ Kotlin settings for Android are configured like this:
 kotlin {
     compilerOptions {
@@ -128,6 +148,7 @@ kotlin {
 }
 
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     implementation(project(":sharedUI"))
     implementation(project(":sharedUI:ovpn-bin"))  // App наследует класс приложения ics-openvpn
     implementation(libs.androidx.activityCompose)

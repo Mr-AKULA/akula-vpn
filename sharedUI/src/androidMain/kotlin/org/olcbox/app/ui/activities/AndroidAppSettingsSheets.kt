@@ -1084,6 +1084,12 @@ private fun ApplicationLogsSettingsContent(
             }
         }
 
+        Text(
+            text = tr("Технические отчёты об ошибках и вылетах отправляются AKULA автоматически. Без ключей, конфигураций и истории посещений.", "Technical error and crash reports are sent to AKULA automatically. No keys, configurations or browsing history."),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
         Spacer(Modifier.height(16.dp))
 
         Surface(

@@ -10,7 +10,9 @@ sealed class VpnStatus {
     object Connected : VpnStatus()
     object Reconnecting : VpnStatus()
     object Stopping : VpnStatus()
-    data class Error(val message: String) : VpnStatus()
+    data class Error(val message: String) : VpnStatus() {
+        init { org.olcbox.app.diagnostics.AppDiagnostics.record("vpn.connection") }
+    }
 }
 
 interface VpnManager {

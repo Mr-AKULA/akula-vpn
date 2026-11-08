@@ -722,10 +722,12 @@ class LocationsRepositoryImpl(
                     }
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
+                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.download", error)
                     return@withProxyAuthentication error.toDownloadFailure()
                 }
 
                 if (response.status.value !in 200..299) {
+                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.http-${response.status.value}")
                     return@withProxyAuthentication DownloadSubscriptionResult.Failure(
                         LocationImportFailureKind.Http,
                         "Subscription server returned HTTP ${response.status.value}"
@@ -736,6 +738,7 @@ class LocationsRepositoryImpl(
                     response.bodyAsText()
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
+                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.download", error)
                     return@withProxyAuthentication error.toDownloadFailure()
                 }
                 if (content.isBlank()) {

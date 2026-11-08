@@ -9,6 +9,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.olcbox.app.CurrentAppInfo
+import org.olcbox.app.diagnostics.AppDiagnostics
 import org.olcbox.app.data.datasource.createProxyHttpClient
 import org.olcbox.app.data.datasource.withProxyAuthentication
 import org.olcbox.app.data.identity.DeviceIdentityProvider
@@ -89,7 +90,7 @@ class AppUpdateService(
                 currentVersion = currentVersion
             )
         )
-    }
+    }.onFailure { AppDiagnostics.record("update.check", it) }
 
     suspend fun fetchRelease(
         channel: ReleaseChannel,

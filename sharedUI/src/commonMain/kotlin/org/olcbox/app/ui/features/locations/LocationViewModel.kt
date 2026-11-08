@@ -242,7 +242,8 @@ class LocationViewModel(
                         }
                     } catch (e: CancellationException) {
                         throw e
-                    } catch (_: Exception) {
+                    } catch (e: Exception) {
+                        org.olcbox.app.diagnostics.AppDiagnostics.record("location.ping", e)
                         null
                     }
 
@@ -267,6 +268,7 @@ class LocationViewModel(
                     emitPingState()
                     throw e
                 } catch (e: Exception) {
+                    org.olcbox.app.diagnostics.AppDiagnostics.record("location.ping", e)
                     activePingJobs.remove(location.storageId)
 
                     val message = e.message ?: "HTTP ping failed"
@@ -334,7 +336,8 @@ class LocationViewModel(
                     performPing(config)
                 } catch (e: CancellationException) {
                     throw e
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                        org.olcbox.app.diagnostics.AppDiagnostics.record("location.ping", e)
                     null
                 }
 

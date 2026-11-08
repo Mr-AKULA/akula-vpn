@@ -166,6 +166,7 @@ class HomeScreenViewModel(
                     vpnManager.startVpn()
                 }
             } catch (e: Exception) {
+                org.olcbox.app.diagnostics.AppDiagnostics.record("home.operation", e)
                 _state.update { it.copy(isVpnLoading = false) }
             }
         }
@@ -319,10 +320,12 @@ class HomeScreenViewModel(
                         onComplete()
                     }
                     is LocationImportResult.Failure -> {
+                        org.olcbox.app.diagnostics.AppDiagnostics.record("configuration.import")
                         onError(result.message)
                     }
                 }
             } catch (e: Exception) {
+                org.olcbox.app.diagnostics.AppDiagnostics.record("home.operation", e)
                 val message = e.message ?: "Import failed"
                 onError(message)
             }
@@ -381,6 +384,7 @@ class HomeScreenViewModel(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.refresh", error)
                 onError(error.message ?: "Subscription update failed")
             }
         }
@@ -393,7 +397,8 @@ class HomeScreenViewModel(
                     refreshDueSubscriptionsIfNeeded()
                 } catch (error: CancellationException) {
                     throw error
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    org.olcbox.app.diagnostics.AppDiagnostics.record("subscription.auto-refresh", error)
                     // Keep the scheduler alive; failed subscriptions retain their last good config.
                 }
                 val nextRefreshAt = locationsRepository.nextSubscriptionRefreshAtEpochMs()

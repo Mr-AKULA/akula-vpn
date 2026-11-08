@@ -3,6 +3,7 @@ package org.olcbox.app.ui.features.home.components
 import org.olcbox.app.ui.i18n.tr
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -57,11 +58,13 @@ fun AddConfigurationSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         dragHandle = { BottomSheetDefaults.DragHandle() }
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {

@@ -146,6 +146,14 @@ private const val WINDOWS_ELEVATED_START_ARGUMENT = "--olcbox-start-vpn-after-el
 
 @OptIn(InternalComposeUiApi::class)
 fun main(args: Array<String>) {
+    org.olcbox.app.diagnostics.AppReportCollector.install(
+        File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"), "AKULA VPN"),
+        when {
+            System.getProperty("os.name").startsWith("Windows") -> "windows"
+            System.getProperty("os.name").startsWith("Mac") -> "macos"
+            else -> "linux"
+        }, System.getProperty("os.version", "unknown")
+    )
     // Compose 1.13 регистрирует графику Skiko только с первым окном, а значок в трее рисуется раньше —
     // без этого вызова приложение падает на старте («No Compose UI graphics implementation is registered»).
     registerSkikoComposeImplementation()
@@ -298,30 +306,32 @@ private fun runDesktopApp(args: Array<String>, deepLinks: DesktopDeepLinks) = ap
         }
     }
 
-    Tray(
-        state = trayState,
-        icon = painterResource("LinuxIcon.png"),
-        tooltip = "AKULA VPN",
-        menu = {
-            Item(tr("Открыть", "Open"), onClick = { isWindowVisible = true })
-            Item(
-                if (trayHomeState.isVpnConnected || trayHomeState.isVpnLoading) tr("Выключить", "Stop") else tr("Включить", "Start"),
-                enabled = trayHomeState.isVpnConnected || trayHomeState.isVpnLoading || trayHomeState.canStartVpn,
-                onClick = {
-                    dependencies.homeViewModel.ToggleVpn()
-                }
-            )
-            Item(tr("Настройки", "Settings"), onClick = {
-                isWindowVisible = true
-                showDesktopSettings = true
-            })
-            Separator()
-            Item(tr("Выход", "Quit"), onClick = {
-                dependencies.close()
-                exitApplication()
-            })
-        }
-    )
+    if (java.awt.SystemTray.isSupported()) {
+        Tray(
+            state = trayState,
+            icon = painterResource("LinuxIcon.png"),
+            tooltip = "AKULA VPN",
+            menu = {
+                Item(tr("Открыть", "Open"), onClick = { isWindowVisible = true })
+                Item(
+                    if (trayHomeState.isVpnConnected || trayHomeState.isVpnLoading) tr("Выключить", "Stop") else tr("Включить", "Start"),
+                    enabled = trayHomeState.isVpnConnected || trayHomeState.isVpnLoading || trayHomeState.canStartVpn,
+                    onClick = {
+                        dependencies.homeViewModel.ToggleVpn()
+                    }
+                )
+                Item(tr("Настройки", "Settings"), onClick = {
+                    isWindowVisible = true
+                    showDesktopSettings = true
+                })
+                Separator()
+                Item(tr("Выход", "Quit"), onClick = {
+                    dependencies.close()
+                    exitApplication()
+                })
+            }
+        )
+    }
 
     Window(
         title = "AKULA VPN",

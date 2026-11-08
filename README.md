@@ -9,7 +9,7 @@
 - автопереключение серверов (включается в настройках), язык — как в системе / русский / English.
 
 Основано на [olcbox](https://github.com/alananisimov/olcbox) (Kotlin Multiplatform + Compose). Платформы: Android
-(готово), Windows (готово: AmneziaWG и OpenVPN внутри программы).
+(готово), Windows (готово: AmneziaWG и OpenVPN внутри программы), Linux ARM64 (локальная AppImage-сборка для проверки на устройстве).
 
 *English:* AKULA VPN is a client for self-hosted AKULA VPN servers — AmneziaWG/WireGuard, OpenVPN and an
 olcRTC-based mode in one app, with subscription links. Based on olcbox. Licensed under GPL v3.
@@ -53,6 +53,20 @@ OpenVPN 2.7 (openvpn.exe + OpenSSL) и драйвер ovpn-dco. При подк�
 копирует их в `C:/ProgramData/AKULA VPN/vpn` — туда пишут только администраторы, — проверяет цифровые подписи и
 запускает оттуда: программу можно ставить в любую папку, подменить модули из папки пользователя нельзя.
 Установщик — свой шаблон WiX (`desktopApp/wix/main.wxs`): при удалении и обновлении гасит туннели.
+
+## Linux ARM64
+
+Готовый локальный пакет: `../releases/AKULA-VPN-linux-arm64.AppImage`. Инструкция и SHA-256 находятся рядом в
+`../releases/README-LINUX-ARM64.md` и `../releases/SHA256SUMS.txt`. На планшете нужны AArch64, glibc 2.34+,
+графическая среда X11/XWayland, `iproute2`, `/dev/net/tun` и `pkexec` для настройки TUN.
+
+```sh
+chmod +x AKULA-VPN-linux-arm64.AppImage
+./AKULA-VPN-linux-arm64.AppImage
+```
+
+Если AppImage не монтируется через FUSE, используйте `APPIMAGE_EXTRACT_AND_RUN=1 ./AKULA-VPN-linux-arm64.AppImage`.
+Запуск GUI проверен через эмуляцию ARM64; подключение VPN нужно проверить на самом планшете.
 
 ## Выпуск обновления
 

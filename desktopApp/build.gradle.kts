@@ -548,6 +548,8 @@ listOf(
 compose.desktop {
     application {
         mainClass = "MainKt"
+        javaHome = providers.gradleProperty("akula.packageJavaHome")
+            .orElse(System.getProperty("java.home")).get()
 
         buildTypes.release.proguard {
             isEnabled.set(false)
@@ -689,7 +691,8 @@ if (currentBuildOs.isWindows) {
             inputs.dir(layout.projectDirectory.dir("wix"))
             outputs.dir(out)
             doFirst { out.get().asFile.apply { deleteRecursively(); mkdirs() } }
-            val jpackage = File(System.getProperty("java.home"), "bin/jpackage.exe")
+            val jpackage = File(providers.gradleProperty("akula.packageJavaHome")
+                .orElse(System.getProperty("java.home")).get(), "bin/jpackage.exe")
             commandLine(
                 jpackage.absolutePath,
                 "--type", type,
